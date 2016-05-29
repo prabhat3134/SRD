@@ -6,23 +6,6 @@ INTEGER, PARAMETER :: dp = selected_real_kind(15, 307)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 
  contains
-!*******************************************
-!	To generate random seed
-subroutine init_random_seed()
-
-      INTEGER :: i, n, clock
-      INTEGER, DIMENSION(:), ALLOCATABLE :: seed
-
-      CALL RANDOM_SEED(size = n)
-      ALLOCATE(seed(n))
-
-      CALL SYSTEM_CLOCK(COUNT=clock)
-
-      seed = clock + 37 * (/ (i - 1, i = 1, n) /)
-      CALL RANDOM_SEED(PUT = seed)
-
-      DEALLOCATE(seed)
-end subroutine init_random_seed
 
 !*****************************************************************************
 ! random generator

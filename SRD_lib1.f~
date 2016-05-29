@@ -174,21 +174,13 @@ integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k
 real	:: r, alpha, vx_temp, vy_temp, alpha1
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp(Ly,Lx), tempx(Ly,Lx), tempy(Ly,Lx)
 
-out_unit=20
+
 vxcom=0.0
 vycom=0.0
 tempx=0.0
 tempy=0.0
 temp =0.0
 
-!call init_random_seed()
- !open (unit=out_unit,file="coll_rand.dat",action="read",status="old")
-!			do i=1,100
-!				read(out_unit,'(f15.12)'), r(i)
-!			end do
- !close(out_unit) 
-
- !open (unit=out_unit,file="../Codes/vxcom.dat",action="write",status="replace")
 do i=1,Ly	
 	do j=1,Lx
 		count1 = 0
@@ -229,9 +221,9 @@ do i=1,Ly
 		!tempx(i,j) = tempx(i,j)/(count1-1)
 		!tempy(i,j) = tempy(i,j)/(count1-1) 				
 	end do
-	!write(out_unit,*), vxcom(i,:)
+	
 end do		
-	!close(out_unit)
+	
 end subroutine collision
 
 !****************************************************************
