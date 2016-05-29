@@ -1,0 +1,23 @@
+subroutine init_random_seed()
+
+      INTEGER :: i, n, clock
+      INTEGER, DIMENSION(:), ALLOCATABLE :: seed
+
+      CALL RANDOM_SEED(size = n)
+      ALLOCATE(seed(n))
+
+      CALL SYSTEM_CLOCK(COUNT=clock)
+
+      seed = clock + 37 * (/ (i - 1, i = 1, n) /)
+      CALL RANDOM_SEED(PUT = seed)
+
+      DEALLOCATE(seed)
+end
+
+program random
+real :: a(10000)
+
+call init_random_seed()
+call random_number(a)
+write(7,*) a
+end 
