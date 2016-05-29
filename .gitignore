@@ -1,0 +1,5 @@
+# ignore objects and archives, anywhere in the tree.
+    *.[oa]
+    *.~
+    # ignore all files in the build/ directory
+data/
