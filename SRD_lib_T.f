@@ -5,6 +5,7 @@ implicit none
 
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
+INTEGER, PARAMETER :: Ly = 50, Lx = 50
 
  contains
 !*******************************************
@@ -204,8 +205,6 @@ vel_scale   = sqrt(Ek_hat/Ek)
 
 
 end function vel_scale_ln
-
-
 
 !***********************************************************************************************
 !********************************* MBS Velocity Scaling ****************************************
@@ -480,35 +479,59 @@ end subroutine thermal_wall
 
 !***********************************************************************
 ! Writing data to files for analysis
-subroutine writing(rx,ry,vx,vy,head,list, density, Lx ,Ly)
+subroutine v_avg(vx,vy,head,list)
 implicit none
-real(kind=dp), dimension(:) :: rx, ry, vx, vy
+real(kind=dp), dimension(:) :: vx, vy
 integer , dimension(:,:)    :: head
 integer, dimension (:)      :: list
-integer :: Lx, Ly, i, j, den=0, ipar
-real(kind=dp) :: density(Ly,Lx), vx_com(Ly,Lx), vy_com(Ly,Lx)
-density(Ly,Lx)=0.0
-vx_com(Ly,Lx)=0.0
-vy_com(Ly,Lx)=0.0
+integer, save ::  t_count = 0
+integer :: i, j, ipar, p_count, out_unit
+real(kind=dp) :: vxcom(Ly), vycom(Ly), vx_temp(Ly)
+real(kind=dp), save :: vx1(Ly)=0.0, vy1(Ly)=0.0
+logical :: exist
 
-do j=1, Lx
-	do i=1, Ly
-		ipar = head(i,j)		
-		do while (ipar/=0)
-			vx_com(i,j) = vx_com(i,j) + vx(ipar)
-			vy_com(i,j) = vy_com(i,j) + vy(ipar)
-			den = den +1
-			ipar = list(ipar)
-		end do
-		if (den/=0) then		
-		density(i,j) = den
-		vx_com(i,j)  = vx_com(i,j)/den	
-		vy_com(i,j)  = vy_com(i,j)/den
-		end if	
-	end do
-end do
+vxcom   = 0.0
+vycom   = 0.0
+out_unit = 20
 
-end subroutine writing
+t_count = t_count+1
+do  i=1,Ly
+p_count = 0
+	do j = 1,Lx    			  			
+    		ipar = head(i,j)    			  		
+    			do while (ipar/=0)
+    			  	vxcom(i) = vxcom(i) + vx(ipar)
+    			  	vycom(i) = vycom(i) + vy(ipar)
+    			  	p_count  = p_count +1
+    			  	ipar     = list(ipar)    			  		
+    			end do    			  			
+    	end do
+    		vxcom(i) = vxcom(i)/p_count
+    		vycom(i) = vycom(i)/p_count
+end do 
+    			  	
+vx1 = vx1 + vxcom
+vy1 = vy1 + vycom
+    			  	
+if (mod(t_count,10000)==0) then
+    	vx_temp = vx1/t_count
+    	!vy_temp = vy1/t_count  	
+                          
+  	inquire(file = "bb_vxavg.dat", exist = exist)  	
+	if (exist) then	
+		open (unit=out_unit,file="bb_vxavg.dat",status="old",action="write",position="append")
+    	else
+		open(unit = out_unit, file="bb_vxavg.dat", status = "new", action = "write")
+	end if	
+    	write (out_unit,*) vx_temp		  		
+    		
+	close(out_unit)	
+	vx1 = 0.0
+	vy1 = 0.0
+	t_count = 0		
+end if    		
+
+end subroutine v_avg
 !***********************************************************************
 ! Subroutine for bounce back boundary condition at wall
 subroutine bounce_wall(rx, ry, rx1, ry1, vx, vy, Ly, dt_c, g, kbt,np)
@@ -542,6 +565,7 @@ do i = 1,np
 end do
 
 end subroutine bounce_wall
+!************************************************************************
 
 
 end module SRD_lib_T
