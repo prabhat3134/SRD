@@ -7,6 +7,9 @@ INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 INTEGER, PARAMETER :: Ly = 50, Lx = 50
 
+random_grid_shift = 0
+mb_scaling = 0
+
  contains
 !*******************************************
 !	To generate random seed
@@ -201,51 +204,10 @@ do while (dummy==0)
 	end if
 end do
 
-vel_scale   = sqrt(Ek_hat/Ek)
+vel_scale = sqrt(Ek_hat/Ek)
 
 
 end function vel_scale_ln
-
-!***********************************************************************************************
-!********************************* MBS Velocity Scaling ****************************************
-!***********************************************************************************************
-function vel_scaling(Ek,np) result(vel_scale)
-implicit none
-
-integer(kind=long) :: gf2
-integer :: np, f, dummy
-real(kind=dp) :: vel_scale, Ek, prob, kbT, Ek_hat, Emax, Eprob, p, pmax, E1
-
-dummy = 0
-kbT = 1.0
-f = 2*(np-1)						 ! Total spatial DOF of all particles
-gf2 = factorial((f/2) - 1)
-Eprob = 0.5*(f-2)*kbT
-!pmax =  (((f-2)/(2*e))**((f/2.0)-1))/(kbT*gf2)
-pmax = (1/(Eprob*gf2))*((Eprob/(kbT))**(f/2.0))*exp(-Eprob/(kbT))
-Emax = 5*Eprob
-!write(*,*) ek,np,f,gf2,eprob,pmax,emax
-do while (dummy==0)
-	
-	E1 = ran()*Emax
-	prob = (1/(E1*gf2))*((E1/(kbT))**(f/2.0))*exp(-E1/(kbT))
-	
-
-	p = ran()*pmax
-
-	if (prob > p) then
-		Ek_hat = E1
-		dummy = 1
-	end if
-end do
-!vel_scale  = Ek_hat
-
-vel_scale   = sqrt(Ek_hat/Ek)
-!write(*,*) vel_scale
-
-end function vel_scaling
-
-
 !*******************************************
 ! Collision Scheme
 subroutine collision(vx, vy, temp, temp_com, tempy, head, list, Lx, Ly, alpha)
@@ -301,10 +263,7 @@ do i=1,Ly
 		
 		! Rotation of velocity
 		ipar = head(i,j)
-		do while (ipar/=0)
-			!tempx(i,j) = tempx(i,j) + ((vx(ipar)-vxcom(i,j))**2)/2 
-			!tempy(i,j) = tempy(i,j) + ((vy(ipar)-vycom(i,j))**2)/2
-			!temp(i,j) = temp(i,j) + (vx(ipar)-vxcom(i,j))**2 + (vy(ipar)-vycom(i,j))**2 	
+		do while (ipar/=0) 	
 			temp(i,j) = temp(i,j) + (0.5*(vx(ipar)**2 -vxcom(i,j)**2 +  vy(ipar)**2 - vycom(i,j)**2))**2 			
 			vx_temp  = vx(ipar)-vxcom(i,j) 
 			vy_temp  = vy(ipar)-vycom(i,j) 			
@@ -316,21 +275,23 @@ do i=1,Ly
 		temp(i,j) = sqrt(temp(i,j)/count1)
 		
 		! obtaining the velocity scale factor
-		!if (count1 >= 3) then
+		if (mb_scaling == 1) then 
+			if (count1 >= 3) then
 		
-			!rel_vel_scale = vel_scaling(Ek(i,j),count1)
-			!!rel_vel_scale = vel_scale_ln(Ek(i,j),count1)
-		! scaling the relative velocities
-			!ipar = head(i,j)			
-			!do while (ipar/=0)  
-			!	vx_rel = vx(ipar)-vxcom(i,j)
-			!	vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
-			!	vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
-			!	vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities 		
-			!	ipar = list(ipar)							! after collision using MBS scheme
-			!end do
-			
-		!end if	
+				rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
+					
+				! scaling the relative velocities
+				ipar = head(i,j)			
+				
+				do while (ipar/=0)  
+					vx_rel = vx(ipar)-vxcom(i,j)
+					vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
+					vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
+					vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities 		
+					ipar = list(ipar)							! after collision using MBS scheme
+				end do	
+			end if	
+		end if
 		
 	end do
 	!write(out_unit,*), vxcom(i,:)
@@ -517,11 +478,11 @@ if (mod(t_count,10000)==0) then
     	vx_temp = vx1/t_count
     	!vy_temp = vy1/t_count  	
                           
-  	inquire(file = "bb_vxavg.dat", exist = exist)  	
+  	inquire(file = "g20_thermal_vxavg.dat", exist = exist)  	
 	if (exist) then	
-		open (unit=out_unit,file="bb_vxavg.dat",status="old",action="write",position="append")
+		open (unit=out_unit,file="g20_thermal_vxavg.dat",status="old",action="write",position="append")
     	else
-		open(unit = out_unit, file="bb_vxavg.dat", status = "new", action = "write")
+		open(unit = out_unit, file="g20_thermal_vxavg.dat", status = "new", action = "write")
 	end if	
     	write (out_unit,*) vx_temp		  		
     		
