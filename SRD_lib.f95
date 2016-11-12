@@ -171,7 +171,6 @@ ELSE
 END IF
 ry1 = ry + vy*dt_c
 vx  = vx + g*dt_c
-call periodic_xy( rx1, ry1,np)
 
 IF (obst==1) l1  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
 
