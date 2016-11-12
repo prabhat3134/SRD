@@ -844,10 +844,10 @@ if (modulo(t_count,avg_time)==0) then
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
     	
 	do i = 1,Ly
-		write (out_unit,"v(<Lx>F10.5)") vx1(i,:)
+		write (out_unit,"(<Lx>F10.5)") vx1(i,:)
 	end do
 	do i = 1,Ly
-		write (out_unit,"v(<Lx>F10.5)") vy1(i,:)
+		write (out_unit,"(<Lx>F10.5)") vy1(i,:)
 	end do
 	close(out_unit)	
 	
