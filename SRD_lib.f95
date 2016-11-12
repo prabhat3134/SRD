@@ -818,9 +818,7 @@ dens = dens + density
 vx1 = vx1 + vxcom
 vy1 = vy1 + vycom
 forcing = forcing + force
-if (temperature) then
-	tx = tx + temp_com
-end if
+if (temperature) tx = tx + temp_com
     			  	
 if (modulo(t_count,avg_time)==0) then
 	file_count = file_count+1
@@ -829,7 +827,7 @@ if (modulo(t_count,avg_time)==0) then
 	forcing = forcing/t_count
 	tx = tx/t_count
 	dens = dens/t_count
-	write (fname, "(A20,A10)") trim(file_name),"_drag_lift"                            
+	write (fname, "(A<LEN(trim(file_name))>,A10)") trim(file_name),"_drag_lift"                            
 	inquire(file = trim(data_path)//trim(fname)//'.dat', exist = Lexist)  	
 	if (Lexist) then	
 		open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',status="old",action="write",position="append")
@@ -839,30 +837,30 @@ if (modulo(t_count,avg_time)==0) then
     	write (out_unit,*) forcing		  		
     	close(out_unit)
 
-	write (fname, "(A20,A7,I0.2)") trim(file_name),"_vx_vy_",file_count                             
+	write (fname, "(A<LEN(trim(file_name))>,A7,I0.2)") trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
     	
 	do i = 1,Ly
-		write (out_unit,*) vx1(i,:)
+		write (out_unit,"v(<Lx>F10.5)") vx1(i,:)
 	end do
 	do i = 1,Ly
-		write (out_unit,*) vy1(i,:)
+		write (out_unit,"v(<Lx>F10.5)") vy1(i,:)
 	end do
 	close(out_unit)	
 	
-	write (fname, "(A20,A5,I0.2)") trim(file_name),"_rho_",file_count                             
+	write (fname, "(A<LEN(trim(file_name))>,A5,I0.2)") trim(file_name),"_rho_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
     	
 	do i = 1,Ly
-		write (out_unit,*) dens(i,:)
+		write (out_unit,"(<Lx>F10.5)") dens(i,:)
 	end do
 	close(out_unit)	
 
 	if (temperature) then
-		write (fname, "(A20,A6,I0.2)") trim(file_name),"_temp_",file_count                             
+		write (fname, "(A<LEN(trim(file_name))>,A6,I0.2)") trim(file_name),"_temp_",file_count                             
 		open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
 		do i = 1,Ly
-			write (out_unit,*) tx(i,:)
+			write (out_unit,"(<Lx>F10.5)") tx(i,:)
 		end do
 		close(out_unit)
 	end if
