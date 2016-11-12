@@ -29,7 +29,10 @@ FUNCTION ran()
 		INTEGER(K4B), PARAMETER :: IA=16807,IM=2147483647,IQ=127773,IR=2836
 		REAL, SAVE :: am
 		INTEGER(K4B), SAVE :: ix=-1,iy=-1,k, idum =-2, call_count=0
-		IF (call_count == 0) idum = -mclock()
+		IF (call_count == 0) then 
+			call clockx(idum)
+			idum = -modulo(idum,10000)
+		END IF
 		if (idum <= 0 .or. iy < 0) then 			!Initialize.
 			am=nearest(1.0,-1.0)/IM
 			iy=ior(ieor(888889999,abs(idum)),1)
