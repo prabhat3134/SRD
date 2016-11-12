@@ -10,7 +10,7 @@ INTEGER, PARAMETER :: Ly = 100, Lx = 100, Gama = 10, m=1, a0=1, avg_time = 20000
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
-LOGICAL, PARAMETER :: xy(2)=[.TRUE., .FALSE.], temperature = .TRUE.
+LOGICAL, PARAMETER :: xy(2)=[.TRUE., .FALSE.], temperature = .TRUE., wall_thermal = .TRUE.
 REAL(kind=dp)  :: force(2), mu_tot
 CHARACTER(len=100) :: file_name='Poise_verlet_f50_g1e5', data_path='./'	!file_name of size 20
  contains
@@ -918,7 +918,40 @@ do i = 1,np
 end do
 
 end subroutine bounce_wall
-!************************************************************************
 
+!**********************************************************************************
+! for writing file which gives the details of all parameters used in the simulation
+SUBROUTINE param_file(tmax, t_avg, g)
+implicit none
+REAL  :: g
+INTEGER :: tmax, t_avg
+LOGICAL :: chk
+
+OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
+
+write(10,*)"Parameters used in the current simulation to which the data belongs"
+write(10,*) "Time step used:", dt_c,", Total time:", tmax,", and total iterations:",tmax/dt_c
+write(10,*) " Force applied:",g,", domain size Ly,Lx:",[Ly,Lx],", particle density:",Gama
+write(10,*) 
+chk = .false.
+IF (verlet == 1) chk = .true.
+write(10,*) "Streaming Algorithm:  ",merge('Verlet',' Euler',chk),", Periodicity in x: ",merge('Yes',' No',xy(1)),", Periodicity in y: ",merge('Yes',' No',xy(2))
+
+write(10,*) 
+chk = .false.
+IF (random_grid_shift == 1) chk = .true.
+write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',chk),", Wall Boundary Contion: ",merge('Thermal',' Bounce',wall_thermal)
+
+write(10,*) 
+chk = .false.
+IF (mb_scaling == 1) chk = .true.
+write(10,*) "MBS applied: ",merge('Yes',' No',chk),", frequency of MBS: ",freq,", kbT:",kbT,", alpha rotation: ",alpha
+
+write(10,*) 
+chk = .false.
+write(10,*) "Averaging starts from iteration: ",t_avg,", Averaging duration in iterations: ",avg_time
+close(10)
+
+END SUBROUTINE param_file
 
 end module SRD_library
