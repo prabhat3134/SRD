@@ -6,7 +6,7 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
-INTEGER, PARAMETER :: Ly = 100, Lx = 100, Gama = 10, m=1, a0=1, avg_time = 20000, freq = 50
+INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, avg_time = 20000, freq = 50
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
@@ -924,31 +924,31 @@ SUBROUTINE param_file(tmax, t_avg, g)
 implicit none
 REAL  :: g
 INTEGER :: tmax, t_avg
-LOGICAL :: chk
 
 OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
 
 write(10,*)"Parameters used in the current simulation to which the data belongs"
-write(10,*) "Time step used:", dt_c,", Total time:", tmax,", and total iterations:",tmax/dt_c
-write(10,*) " Force applied:",g,", domain size Ly,Lx:",[Ly,Lx],", particle density:",Gama
-write(10,*) 
-chk = .false.
-IF (verlet == 1) chk = .true.
-write(10,*) "Streaming Algorithm:  ",merge('Verlet',' Euler',chk),", Periodicity in x: ",merge('Yes',' No',xy(1)),", Periodicity in y: ",merge('Yes',' No',xy(2))
+write(10,*) "Particle density: ",Gama
+write(10,*) "alpha rotation: ",alpha
+write(10,*) "kbT: ",kbT
+write(10,*) "Domain size Ly,Lx:",[Ly,Lx]
+write(10,*)
+write(10,*) "Time step used: ", dt_c
+write(10,*) "Total time: ", tmax
+write(10,*) "Total iterations: ",tmax/dt_c
+write(10,*) "Force applied:",g
+write(10,*)
+write(10,*) "Streaming Algorithm:  ",merge('Verlet',' Euler',verlet==1)
+write(10,*) "Periodicity in x: ",merge('Yes',' No',xy(1))
+write(10,*) "Periodicity in y: ",merge('Yes',' No',xy(2))
+write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',random_grid_shift==1)
+write(10,*) "Wall Boundary Condition: ",merge('Thermal wall',' Bounce wall',wall_thermal)
+write(10,*)
+write(10,*) "MBS applied: ",merge('Yes',' No',mb_scaling==1)
+write(10,*) "MBS applied in number of iterations: ",freq
+write(10,*) "Averaging starts from iteration: ",t_avg
+write(10,*) "Averaging duration in iterations: ",avg_time
 
-write(10,*) 
-chk = .false.
-IF (random_grid_shift == 1) chk = .true.
-write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',chk),", Wall Boundary Contion: ",merge('Thermal',' Bounce',wall_thermal)
-
-write(10,*) 
-chk = .false.
-IF (mb_scaling == 1) chk = .true.
-write(10,*) "MBS applied: ",merge('Yes',' No',chk),", frequency of MBS: ",freq,", kbT:",kbT,", alpha rotation: ",alpha
-
-write(10,*) 
-chk = .false.
-write(10,*) "Averaging starts from iteration: ",t_avg,", Averaging duration in iterations: ",avg_time
 close(10)
 
 END SUBROUTINE param_file
