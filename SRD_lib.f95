@@ -948,7 +948,8 @@ write(10,*) "MBS applied: ",merge('Yes',' No',mb_scaling==1)
 write(10,*) "MBS applied in number of iterations: ",freq
 write(10,*) "Averaging starts from iteration: ",t_avg
 write(10,*) "Averaging duration in iterations: ",avg_time
-
+write(10,*)
+write(10,*) "Analytical Viscosity as per given condition:  ",mu_tot 
 close(10)
 
 END SUBROUTINE param_file
