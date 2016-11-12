@@ -22,6 +22,7 @@
 		
 		t_tot = tmax/dt_c
 		call cpu_time(start)
+		call param_file(tmax,t_avg,g)
 		
 		call initialize(x_dummy, y_dummy, rx,ry,vx,vy, np, av, std, g)	 
 		do iter=1,t_tot			
@@ -30,9 +31,13 @@
 			IF (obst==1) call par_in_cyl(l1, rx, ry, rx1, ry1,vx, vy, theta_intersect, g)
 			
 			if (.NOT. xy(2)) then 
-			!	call thermal_wall(rx, ry, rx1, ry1, vx, vy, Ly, g, np)
-				call bounce_wall(rx, ry, rx1, ry1, vx, vy, Ly, g, np)
+				IF (wall_thermal) THEN
+					call thermal_wall(rx, ry, rx1, ry1, vx, vy, Ly, g, np)
+				ELSE
+					call bounce_wall(rx, ry, rx1, ry1, vx, vy, Ly, g, np)
+				END IF
 			end if
+			call periodic_xy( rx1, ry1,np)
 		
 			rx = rx1
 			ry = ry1
