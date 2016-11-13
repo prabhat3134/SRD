@@ -22,9 +22,9 @@
 		
 		t_tot = tmax/dt_c
 		call cpu_time(start)
-		call param_file(tmax,t_avg,g)
 		
 		call initialize(x_dummy, y_dummy, rx,ry,vx,vy, np, av, std, g)	 
+		call param_file(tmax,t_avg,g)
 		do iter=1,t_tot			
 			call streaming(rx, ry, rx1, ry1, vx, vy, np, l1, g)
 
