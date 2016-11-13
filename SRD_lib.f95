@@ -6,7 +6,7 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
-INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, avg_time = 20000, freq = 50
+INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, avg_time = 50000, freq = 50
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
@@ -164,13 +164,17 @@ real(kind = dp),dimension(:) :: rx, ry, rx1, ry1, vx, vy
 real :: g
 logical :: l1(:)
 
-IF (verlet ==1) THEN
+IF (verlet == 2) THEN	 	! LEAPFROG algorithm
+	vx  = vx + g*dt_c
+	rx1 = rx + vx*dt_c
+ELSE IF (verlet ==1) THEN	!Verlet Algorithm
 	rx1 = rx + vx*dt_c + (g*dt_c**2)/2.0 
-ELSE
+	vx  = vx + g*dt_c
+ELSE				!EULER algorithm
 	rx1 = rx + vx*dt_c 
+	vx  = vx + g*dt_c
 END IF
 ry1 = ry + vy*dt_c
-vx  = vx + g*dt_c
 
 IF (obst==1) l1  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
 
@@ -748,7 +752,13 @@ do i = 1,np
 			ry1(i) = Ly + vy(i)*t_dec	
 		end if		
 		vx(i)  = vx(i)-g*dt_c
-		IF (verlet == 1) THEN
+		IF (verlet == 2) THEN
+			vx(i)  = vx(i) + g*(dt_c+t_app)/2
+			rx1(i) = rx(i) + vx(i)*t_app
+			vx(i)  = vxwall(j) 
+			vx(i)  = vx(i) + g*t_dec/2
+			rx1(i) = rx1(i) + vx(i)*t_dec
+		ELSE IF (verlet == 1) THEN
 			rx1(i) = rx(i) + vx(i)*t_app + (g*t_app**2)/2 
 			vx(i)  = vxwall(j)
 			rx1(i) = rx1(i) + vx(i)*t_dec + (g*t_dec**2)/2 
@@ -901,7 +911,13 @@ do i = 1,np
 			ry1(i) = Ly + vy(i)*t_dec	
 		end if		
 		vx(i) = vx(i)-g*dt_c
-		IF (verlet == 1) THEN
+		IF (verlet == 2) THEN
+			vx(i)  = vx(i) + g*(dt_c+t_app)/2
+			rx1(i) = rx(i) + vx(i)*t_app
+			vx(i)  = -vx(i) 
+			vx(i)  = vx(i) + g*t_dec/2
+			rx1(i) = rx1(i) + vx(i)*t_dec
+		ELSE IF (verlet == 1) THEN
 			rx1(i) = rx(i) + vx(i)*t_app + (g*t_app**2)/2
 			vx(i)  = vx(i) + g*t_app
 			vx(i)  = -vx(i)
@@ -938,7 +954,7 @@ write(10,*) "Total time: ", tmax
 write(10,*) "Total iterations: ",tmax/dt_c
 write(10,*) "Force applied:",g
 write(10,*)
-write(10,*) "Streaming Algorithm:  ",merge('Verlet',' Euler',verlet==1)
+write(10,*) "Streaming Algorithm:  ",merge(merge('Leapfrog','  Verlet',verlet/=1),'   Euler',verlet/=0)
 write(10,*) "Periodicity in x: ",merge('Yes',' No',xy(1))
 write(10,*) "Periodicity in y: ",merge('Yes',' No',xy(2))
 write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',random_grid_shift==1)
