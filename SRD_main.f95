@@ -10,7 +10,7 @@
 		REAL (kind=dp1) :: fs = 7.0, twer, x_dummy(n_total), y_dummy(n_total)
 		INTEGER :: tmax=1500000, head(Ly,Lx), list(n_total), head1(Ly+2,Lx)
 		INTEGER :: list1(n_total),iter, t_tot, t_count=0, p_count, i,j, ipar, rand_for_cell, counter = 0 		
-		INTEGER :: t_avg = 500000
+		INTEGER :: t_avg = 100000, avg_interval=200
 		REAL(kind=dp1) :: temp(Ly,Lx), temp_com(Ly,Lx), tempy(Ly,Lx), vxcom(Ly), vycom(Ly), vx1(Ly), vy1(Ly), vx_temp(Ly), vy_temp(Ly)
 		LOGICAL :: l1(np), l1_temp(np)
 		CHARACTER(LEN=1024)  :: fname
@@ -57,11 +57,11 @@
 			endif
 
     			! for averaging the values 
-			if (iter > t_avg) then
+			if (MODULO(iter - t_avg, avg_interval) == 0) then
 				if (random_grid_shift == 1) then
 					call partition(rx,ry,head,list,Lx,Ly,np)
 				end if
-				call v_avg(vx,vy,head,list) 
+				call v_avg(vx,vy, rx, ry, head,list) 
  			end if
 		end do
 
