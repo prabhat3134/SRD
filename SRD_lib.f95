@@ -6,7 +6,7 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
-INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, avg_time = 50000, freq = 50
+INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 5000, freq = 50
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
@@ -782,17 +782,17 @@ end subroutine thermal_wall
 !***********************************************************************
 !***********************************************************************
 ! Writing data to files for analysis
-subroutine v_avg(vx,vy,head,list)
+subroutine v_avg(vx,vy, rx, ry, head,list)
 implicit none
-real(kind=dp), dimension(:) :: vx, vy
+real(kind=dp), dimension(:) :: vx, vy, rx, ry
 integer , dimension(:,:)    :: head
 integer, dimension (:)      :: list
-integer, save ::  t_count = 0, file_count = 0
-integer :: i, j, ipar, p_count, out_unit
+integer, save ::  t_count = 0, file_count = 0, tot_part_count(Ly)=0
+integer :: i, j, k, ipar, p_count, out_unit, y_low, y_up
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx), density(Ly,Lx)
-real(kind=dp), save :: vx1(Ly,Lx)=0.0, vy1(Ly,Lx)=0.0, forcing(2) = 0.0, tx(Ly,Lx) = 0.0, dens(Ly,Lx) = 0.0
+real(kind=dp), save :: vx1(Ly,Lx)=0.0, vy1(Ly,Lx)=0.0, forcing(2) = 0.0, tx(Ly,Lx) = 0.0, dens(Ly,Lx) = 0.0, vx_avg(Ly)=0.0, vy_avg(Ly)=0.0 
 logical :: Lexist
- CHARACTER(LEN=200)  :: fname
+CHARACTER(LEN=200)  :: fname
 
 vxcom   = 0.0
 vycom   = 0.0
@@ -804,38 +804,58 @@ t_count = t_count+1
 do i = 1,Ly
 do j = 1,Lx    			  			
 	p_count = 0
-    	ipar = head(i,j)    			  		
-    	do while (ipar/=0)
-    	  	vxcom(i,j) = vxcom(i,j) + vx(ipar)
-    	  	vycom(i,j) = vycom(i,j) + vy(ipar)
-    	  	p_count  = p_count +1
-    	  	ipar     = list(ipar)    			  		
-    	end do    			  			
-	if (p_count /=0) then
+	ipar = head(i,j)					
+	do while (ipar/=0)			
+		vxcom(i,j) = vxcom(i,j) + vx(ipar)
+		vycom(i,j) = vycom(i,j) + vy(ipar)
+		p_count = p_count + 1
+		ipar = list(ipar)
+	end do
+	if (p_count/=0) then
 		vxcom(i,j) = vxcom(i,j)/p_count
 		vycom(i,j) = vycom(i,j)/p_count
-	end if
+	end if	
+	
 	density(i,j) = p_count
 	if(temperature .and. p_count > 1) then
 		ipar = head(i,j)    			  		
 		do while (ipar/=0)
 			temp_com(i,j) = temp_com(i,j) + 0.5*((vx(ipar) - vxcom(i,j))**2 + (vy(ipar) - vycom(i,j))**2) 					
-			ipar = list(ipar)		
+			ipar = lit(ipar)		
 		end do
 		temp_com(i,j) = temp_com(i,j)/(p_count - 1)
 	end if
 end do
 end do 
 dens = dens + density    			  	
-vx1 = vx1 + vxcom
-vy1 = vy1 + vycom
-forcing = forcing + force
+!forcing = forcing + force
 if (temperature) tx = tx + temp_com
-    			  	
-if (modulo(t_count,avg_time)==0) then
+
+! Velocity averaging 
+do i= 1,Ly
+y_low = (i-1)
+y_up = i
+
+	! loop over all the particles
+	do j=1,np
+		if (ry(j) > y_low .AND. ry(j) < y_up) then
+			vx_avg(i) = vx_avg(i) + vx(j)
+			vy_avg(i) = vy_avg(i) + vy(j)
+
+			tot_part_count(i) = tot_part_count(i)+1
+		endif 
+	end do
+end do
+
+if (modulo(t_count,ensemble_num)==0) then
 	file_count = file_count+1
-    	vx1 = vx1/t_count
-    	vy1 = vy1/t_count
+    	
+	! Averaging all the velocities over the respective particles and time
+	DO k=1,Ly
+		vx_avg(k) = vx_avg(k)/tot_part_count(k)
+		vy_avg(k) = vy_avg(k)/tot_part_count(k)
+	END DO
+
 	forcing = forcing/t_count
 	tx = tx/t_count
 	dens = dens/t_count
@@ -853,10 +873,10 @@ if (modulo(t_count,avg_time)==0) then
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
     	
 	do i = 1,Ly
-		write (out_unit,"(<Lx>F10.5)") vx1(i,:)
+		write (out_unit,"(<Lx>F10.5)") vx_avg(i)
 	end do
 	do i = 1,Ly
-		write (out_unit,"(<Lx>F10.5)") vy1(i,:)
+		write (out_unit,"(<Lx>F10.5)") vy_avg(i)
 	end do
 	close(out_unit)	
 	
@@ -876,8 +896,9 @@ if (modulo(t_count,avg_time)==0) then
 		end do
 		close(out_unit)
 	end if
-	vx1 = 0.0
-	vy1 = 0.0
+	vx_avg = 0.0
+	vy_avg = 0.0
+	tot_part_count=0
 	tx  = 0.0
 	dens= 0.0
 	t_count = 0	
@@ -963,7 +984,8 @@ write(10,*)
 write(10,*) "MBS applied: ",merge('Yes',' No',mb_scaling==1)
 write(10,*) "MBS applied in number of iterations: ",freq
 write(10,*) "Averaging starts from iteration: ",t_avg
-write(10,*) "Averaging duration in iterations: ",avg_time
+write(10,*) "Interval between samples considered for average: ",avg_interval
+write(10,*) "Number of samples considered for average : ",ensemble_num
 write(10,*)
 write(10,*) "Analytical Viscosity as per given condition:  ",mu_tot 
 close(10)
