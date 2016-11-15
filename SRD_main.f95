@@ -10,7 +10,7 @@
 		REAL (kind=dp1) :: fs = 7.0, twer, x_dummy(n_total), y_dummy(n_total)
 		INTEGER :: tmax=1500000, head(Ly,Lx), list(n_total), head1(Ly+2,Lx)
 		INTEGER :: list1(n_total),iter, t_tot, t_count=0, p_count, i,j, ipar, rand_for_cell, counter = 0 		
-		INTEGER :: t_avg = 100000, avg_interval=200
+		INTEGER :: t_avg = 500000, avg_interval=1
 		REAL(kind=dp1) :: temp(Ly,Lx), temp_com(Ly,Lx), tempy(Ly,Lx), vxcom(Ly), vycom(Ly), vx1(Ly), vy1(Ly), vx_temp(Ly), vy_temp(Ly)
 		LOGICAL :: l1(np), l1_temp(np)
 		CHARACTER(LEN=1024)  :: fname
@@ -24,7 +24,7 @@
 		call cpu_time(start)
 		
 		call initialize(x_dummy, y_dummy, rx,ry,vx,vy, np, av, std, g)	 
-		call param_file(tmax,t_avg,g)
+		call param_file(tmax,t_avg,g, avg_interval)
 		do iter=1,t_tot			
 			call streaming(rx, ry, rx1, ry1, vx, vy, np, l1, g)
 
