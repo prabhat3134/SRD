@@ -6,7 +6,7 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
-INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 5000, freq = 50
+INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 50000, freq = 50, half_plane =2
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
@@ -784,13 +784,15 @@ end subroutine thermal_wall
 ! Writing data to files for analysis
 subroutine v_avg(vx,vy, rx, ry, head,list)
 implicit none
+INTEGER,PARAMETER :: grid_points = half_plane*Ly + 1
 real(kind=dp), dimension(:) :: vx, vy, rx, ry
 integer , dimension(:,:)    :: head
 integer, dimension (:)      :: list
-integer, save ::  t_count = 0, file_count = 0, tot_part_count(Ly)=0
-integer :: i, j, k, ipar, p_count, out_unit, y_low, y_up
-real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx), density(Ly,Lx)
-real(kind=dp), save :: vx1(Ly,Lx)=0.0, vy1(Ly,Lx)=0.0, forcing(2) = 0.0, tx(Ly,Lx) = 0.0, dens(Ly,Lx) = 0.0, vx_avg(Ly)=0.0, vy_avg(Ly)=0.0 
+integer, save ::  t_count = 0, file_count = 0
+integer :: i, j, k, ipar, p_count, out_unit, y_low, y_up, half_plane
+real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx), density(Ly,Lx), weight, plane_pos
+real(kind=dp), save :: vx1(Ly,Lx)=0.0, vy1(Ly,Lx)=0.0, forcing(2) = 0.0, tx(Ly,Lx) = 0.0, dens(Ly,Lx) = 0.0,&
+vx_avg(grid_points)=0.0, vy_avg(grid_points)=0.0,  tot_part_count(grid_points)=0.0	! every grid points considered from 0 to Ly
 logical :: Lexist
 CHARACTER(LEN=200)  :: fname
 
@@ -809,6 +811,22 @@ do j = 1,Lx
 		vxcom(i,j) = vxcom(i,j) + vx(ipar)
 		vycom(i,j) = vycom(i,j) + vy(ipar)
 		p_count = p_count + 1
+		IF (half_plane==2) THEN
+			plane_pos = i-0.5
+			weight  = (ry(ipar)-plane_pos)/0.5
+			If (weight < 0.0) weight = 1 + weight
+			k = merge(i*half_plane, i*half_plane-1, ry(ipar) .gt. plane_pos)
+		ELSE
+			plane_pos = i-1
+			weight = ry(ipar)-plane_pos
+			k = i
+		END IF
+		vx_avg(k)   = vx_avg(k)   + vx(ipar)*(1-weight)
+		vx_avg(k+1) = vx_avg(k+1) + vx(ipar)*weight
+		vy_avg(k)   = vy_avg(k)   + vy(ipar)*(1-weight)
+		vy_avg(k+1) = vy_avg(k+1) + vy(ipar)*weight
+		tot_part_count(k) = tot_part_count(k) + (1-weight)
+		tot_part_count(k+1) = tot_part_count(k) + weight
 		ipar = list(ipar)
 	end do
 	if (p_count/=0) then
@@ -821,7 +839,7 @@ do j = 1,Lx
 		ipar = head(i,j)    			  		
 		do while (ipar/=0)
 			temp_com(i,j) = temp_com(i,j) + 0.5*((vx(ipar) - vxcom(i,j))**2 + (vy(ipar) - vycom(i,j))**2) 					
-			ipar = lit(ipar)		
+			ipar = list(ipar)		
 		end do
 		temp_com(i,j) = temp_com(i,j)/(p_count - 1)
 	end if
@@ -831,30 +849,12 @@ dens = dens + density
 !forcing = forcing + force
 if (temperature) tx = tx + temp_com
 
-! Velocity averaging 
-do i= 1,Ly
-y_low = (i-1)
-y_up = i
-
-	! loop over all the particles
-	do j=1,np
-		if (ry(j) > y_low .AND. ry(j) < y_up) then
-			vx_avg(i) = vx_avg(i) + vx(j)
-			vy_avg(i) = vy_avg(i) + vy(j)
-
-			tot_part_count(i) = tot_part_count(i)+1
-		endif 
-	end do
-end do
-
 if (modulo(t_count,ensemble_num)==0) then
 	file_count = file_count+1
     	
 	! Averaging all the velocities over the respective particles and time
-	DO k=1,Ly
-		vx_avg(k) = vx_avg(k)/tot_part_count(k)
-		vy_avg(k) = vy_avg(k)/tot_part_count(k)
-	END DO
+	vx_avg = vx_avg/tot_part_count
+	vy_avg = vy_avg/tot_part_count
 
 	forcing = forcing/t_count
 	tx = tx/t_count
@@ -871,13 +871,8 @@ if (modulo(t_count,ensemble_num)==0) then
 
 	write (fname, "(A<LEN(trim(file_name))>,A7,I0.2)") trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-    	
-	do i = 1,Ly
-		write (out_unit,"(<Lx>F10.5)") vx_avg(i)
-	end do
-	do i = 1,Ly
-		write (out_unit,"(<Lx>F10.5)") vy_avg(i)
-	end do
+	write (out_unit,"(<half_plane*Ly>F10.5)") vx_avg
+	write (out_unit,"(<half_plane*Ly>F10.5)") vy_avg
 	close(out_unit)	
 	
 	write (fname, "(A<LEN(trim(file_name))>,A5,I0.2)") trim(file_name),"_rho_",file_count                             
@@ -898,7 +893,7 @@ if (modulo(t_count,ensemble_num)==0) then
 	end if
 	vx_avg = 0.0
 	vy_avg = 0.0
-	tot_part_count=0
+	tot_part_count=0.0
 	tx  = 0.0
 	dens= 0.0
 	t_count = 0	
@@ -957,10 +952,10 @@ end subroutine bounce_wall
 
 !**********************************************************************************
 ! for writing file which gives the details of all parameters used in the simulation
-SUBROUTINE param_file(tmax, t_avg, g)
+SUBROUTINE param_file(tmax, t_avg, g, avg_interval)
 implicit none
 REAL  :: g
-INTEGER :: tmax, t_avg
+INTEGER :: tmax, t_avg, avg_interval
 
 OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
 
