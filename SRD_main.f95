@@ -57,7 +57,7 @@
 			endif
 
     			! for averaging the values 
-			if (MODULO(iter - t_avg, avg_interval) == 0) then
+			if (iter .GT. t_avg .AND. MODULO(iter - t_avg, avg_interval) == 0) then
 				if (random_grid_shift == 1) then
 					call partition(rx,ry,head,list,Lx,Ly,np)
 				end if
