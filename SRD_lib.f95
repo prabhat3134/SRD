@@ -789,7 +789,7 @@ real(kind=dp), dimension(:) :: vx, vy, rx, ry
 integer , dimension(:,:)    :: head
 integer, dimension (:)      :: list
 integer, save ::  t_count = 0, file_count = 0
-integer :: i, j, k, ipar, p_count, out_unit, y_low, y_up, half_plane
+integer :: i, j, k, ipar, p_count, out_unit, y_low, y_up
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx), density(Ly,Lx), weight, plane_pos
 real(kind=dp), save :: vx1(Ly,Lx)=0.0, vy1(Ly,Lx)=0.0, forcing(2) = 0.0, tx(Ly,Lx) = 0.0, dens(Ly,Lx) = 0.0,&
 vx_avg(grid_points)=0.0, vy_avg(grid_points)=0.0,  tot_part_count(grid_points)=0.0	! every grid points considered from 0 to Ly
@@ -826,7 +826,7 @@ do j = 1,Lx
 		vy_avg(k)   = vy_avg(k)   + vy(ipar)*(1-weight)
 		vy_avg(k+1) = vy_avg(k+1) + vy(ipar)*weight
 		tot_part_count(k) = tot_part_count(k) + (1-weight)
-		tot_part_count(k+1) = tot_part_count(k) + weight
+		tot_part_count(k+1) = tot_part_count(k+1) + weight
 		ipar = list(ipar)
 	end do
 	if (p_count/=0) then
@@ -871,8 +871,8 @@ if (modulo(t_count,ensemble_num)==0) then
 
 	write (fname, "(A<LEN(trim(file_name))>,A7,I0.2)") trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-	write (out_unit,"(<half_plane*Ly>F10.5)") vx_avg
-	write (out_unit,"(<half_plane*Ly>F10.5)") vy_avg
+	write (out_unit,"(<half_plane*Ly+1>F10.5)") vx_avg	!could also directly use the size(vx_avg) in format string
+	write (out_unit,"(<half_plane*Ly+1>F10.5)") vy_avg
 	close(out_unit)	
 	
 	write (fname, "(A<LEN(trim(file_name))>,A5,I0.2)") trim(file_name),"_rho_",file_count                             
