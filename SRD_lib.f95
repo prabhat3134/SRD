@@ -6,7 +6,7 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
-INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 50000, freq = 50, half_plane =2
+INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 50000, freq = 100, half_plane =2
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
@@ -981,6 +981,7 @@ write(10,*) "MBS applied in number of iterations: ",freq
 write(10,*) "Averaging starts from iteration: ",t_avg
 write(10,*) "Interval between samples considered for average: ",avg_interval
 write(10,*) "Number of samples considered for average : ",ensemble_num
+write(10,*) "Mid plane of every cell used for averaging: ", merge('Yes',' No',half_plane == 2)
 write(10,*)
 write(10,*) "Analytical Viscosity as per given condition:  ",mu_tot 
 close(10)
