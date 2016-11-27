@@ -6,7 +6,7 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), long = selected_int_kind(range(1)*2)
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
-INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 50000, freq = 100, half_plane =2
+INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 50000, half_plane =2, freq = 100
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
 INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
@@ -461,22 +461,19 @@ integer, dimension(:,:)    ::   head1
 integer :: np, Lx, Ly, xindex, yindex,i
 real(kind = dp) :: x_rand, y_rand, xindex_temp, yindex_temp
 
-head1 = 0
+head1 = 0		! Head starts from [1, Ly+1]
 list1 = 0
-x_rand = (ran()-0.5)
-y_rand = (ran()-0.5)
+x_rand = ran()	! random shift from [0,1]
+y_rand = ran()
 do i=1,np
 	if (xy(2)) then
 		yindex_temp = mod(ry1(i)+y_rand, Ly*1.0) 
-		yindex_temp = merge(yindex_temp, yindex_temp+Ly, yindex_temp >= 0)
-		yindex = ceiling(yindex_temp) + 1
-
+		yindex = ceiling(yindex_temp) 
 	else
-		yindex = ceiling(ry1(i) + y_rand) + 1				! Here the addition of 1 is to ensure an index starting from 1 to Ly+2
+		yindex = ceiling(ry1(i) + y_rand) 		
 	end if
 
-	xindex_temp = mod(rx1(i) + x_rand, Lx*1.0)			! generate random number between -0.5 to 0.5			
-	xindex_temp = merge(xindex_temp, xindex_temp+Lx, xindex_temp >= 0)
+	xindex_temp = mod(rx1(i) + x_rand, Lx*1.0)						
 	xindex = ceiling(xindex_temp)
 
 	! linked list algorithm
@@ -506,7 +503,7 @@ fs = (f/2.0)-1
 gf2 = fs*log(fs*1.0)-fs + 0.5*log(2*pi*fs)+ log(1.0+1.0/(12*fs) + 1.0/(288*(fs**2)))	! logarithmic of gamma(f/2)
 
 Eprob = 0.5*(f-2)*kbT
-log_temp = (f/2.0*log(Eprob/kbT))-log(Eprob)-(Eprob/kbT)-gf2
+log_temp = ((f/2.0)*log(Eprob/kbT))-log(Eprob)-(Eprob/kbT)-gf2
 !pmax =  (((f-2)/(2*e))**((f/2.0)-1))/(kbT*gf2)
 pmax = exp(log_temp)
 Emax = 10*Eprob
@@ -514,7 +511,7 @@ Emax = 10*Eprob
 do while (dummy==0)
 	
 	E1 = ran()*Emax
-	log_temp = (f/2.0*log(E1/kbT))-log(E1)-(E1/kbT)-gf2
+	log_temp = ((f/2.0)*log(E1/kbT))-log(E1)-(E1/kbT)-gf2
 	prob = exp(log_temp)
 	
 	p = ran()*pmax
@@ -536,6 +533,7 @@ implicit none
 real(kind=dp), dimension(:) :: vx, vy
 integer, dimension(:) :: list
 integer, dimension(:,:)    ::   head
+integer, save :: mbs_iter = 0
 integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k
 real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale, vx_rel, vy_rel
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp(Ly,Lx), temp_com(Ly,Lx), tempy(Ly,Lx), Ek(Ly,Lx)
@@ -547,7 +545,7 @@ temp_com=0.0
 tempy=0.0
 temp =0.0
 Ek = 0.0
-
+mbs_iter = mbs_iter + 1
 do i=1,Ly	
 	do j=1,Lx
 		count1 = 0
@@ -588,21 +586,20 @@ do i=1,Ly
 		temp(i,j) = sqrt(temp(i,j)/count1)
 		
 		! obtaining the velocity scale factor
-		if (mb_scaling == 1) then 
-			if (count1 >= 3) then
-				rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
-					
-				! scaling the relative velocities
-				ipar = head(i,j)			
+		if (mb_scaling == 1 .and. mod(mbs_iter,freq) == 0 .and. count1 >= 3 ) then 
+			! count1 >=3: This condition satisfies for the minimum number of particles required for MB scaling
+			rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
 				
-				do while (ipar/=0)  
-					vx_rel = vx(ipar)-vxcom(i,j)
-					vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
-					vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
-					vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities 		
-					ipar = list(ipar)							! after collision using MBS scheme
-				end do	
-			end if	
+			! scaling the relative velocities
+			ipar = head(i,j)			
+			
+			do while (ipar/=0)  
+				vx_rel = vx(ipar)-vxcom(i,j)
+				vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
+				vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
+				vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities 		
+				ipar = list(ipar)							! after collision using MBS scheme
+			end do	
 		end if
 		
 	end do
@@ -620,9 +617,9 @@ real(kind=dp), dimension(:) :: vx, vy
 integer, dimension(:) :: list1
 integer, dimension(:,:)    ::   head1
 integer, save :: mbs_iter=0
-integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k, deficit, virtual(Ly+2,Lx)
+integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k, deficit, virtual(Ly+1,Lx)
 real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale, vx_rel, vy_rel
-real(kind=dp) :: vxcom(Ly+2,Lx), vycom(Ly+2,Lx), Ek(Ly+2,Lx), a(2)
+real(kind=dp) :: vxcom(Ly+1,Lx), vycom(Ly+1,Lx), Ek(Ly+1,Lx), a(2)
 integer ::  np
 
 
@@ -632,7 +629,7 @@ vycom=0.0
 Ek = 0.0
 virtual = 0
 mbs_iter = mbs_iter + 1
-do i=1,Ly+2	
+do i=1,Ly+1	
 	do j=1,Lx
 		count1 = 0
 				
@@ -654,7 +651,7 @@ do i=1,Ly+2
 
 		deficit = 0
 		! adding ghost particles for wall
-		if ((i==1 .or. i== Ly+2 .or. grid_check(i,j)==1) .and. (count1 < Gama) .and. (count1 > 0)) then
+		if ((i==1 .or. i== Ly+1 .or. grid_check(i,j)==1) .and. (count1 < Gama) .and. (count1 > 0)) then
 			deficit = Gama - count1
 			call random_normal(a,2,0.0,sqrt(deficit*kbT))	
 			vxcom(i,j) = vxcom(i,j) + a(1)
@@ -701,21 +698,6 @@ do i=1,Ly+2
 end do	
 
 end subroutine collision_rgs
-
-!***********************************************************************************************
-!********************************* Gamma function calculation ***********************************
-!***********************************************************************************************
-
-RECURSIVE FUNCTION factorial(n) RESULT(res)
-implicit none
-        INTEGER(kind=long) :: res
-	INTEGER :: n
-        IF(n.EQ.0) THEN
-           res = 1
-        ELSE
-           res = n*factorial(n-1)
-        END IF
-     END FUNCTION factorial
 
 !****************************************************************
 ! Subroutine for thermal boundary conditions for a cylinder
@@ -871,8 +853,12 @@ if (modulo(t_count,ensemble_num)==0) then
 
 	write (fname, "(A<LEN(trim(file_name))>,A7,I0.2)") trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-	write (out_unit,"(<half_plane*Ly+1>F10.5)") vx_avg	!could also directly use the size(vx_avg) in format string
-	write (out_unit,"(<half_plane*Ly+1>F10.5)") vy_avg
+
+	DO i=1,half_plane*Ly+1
+	write(out_unit,*) vx_avg(i),vy_avg(i)
+	END DO
+!	write (out_unit,"(<half_plane*Ly+1>F10.5)") vx_avg	!could also directly use the size(vx_avg) in format string
+!	write (out_unit,"(<half_plane*Ly+1>F10.5)") vy_avg
 	close(out_unit)	
 	
 	write (fname, "(A<LEN(trim(file_name))>,A5,I0.2)") trim(file_name),"_rho_",file_count                             
