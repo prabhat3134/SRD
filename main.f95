@@ -2,70 +2,62 @@ PROGRAM SRD
 	use SRD_library
 	IMPLICIT NONE
 
-	INTEGER, PARAMETER :: l0=50, b0=50, width=10, msize = Lx*Ly
-	INTEGER, PARAMETER :: n_total=Gama*Ly*Lx, np = n_total, dp1 = selected_real_kind(15, 307)
-	
-	REAL :: av=0.0, std=sqrt(kbT/m), g=1e-5, start, finish, seed
-	REAL (kind=dp1) :: fs = 7.0, twer, x_dummy(n_total), y_dummy(n_total)
-	INTEGER :: tmax=1500000, head(Ly,Lx), list(n_total), head1(Ly+1,Lx), list1(n_total)
-	INTEGER :: iter, t_tot, t_count=0, p_count, i,j, ipar, counter = 0 		
-	INTEGER :: t_avg = 500000, avg_interval=1
-	REAL(kind=dp1) :: temp(Ly,Lx), temp_com(Ly,Lx), tempy(Ly,Lx), vxcom(Ly), vycom(Ly), vx1(Ly), vy1(Ly), vx_temp(Ly), vy_temp(Ly)
-	LOGICAL :: l1(np), l1_temp(np)
-	CHARACTER(LEN=1024)  :: fname
-	REAL(kind=dp1)::rx(np),ry(np),rx1(np),ry1(np),vx(np),vy(np), theta_intersect(np)		! needed when square block is present
-	vxcom(Ly)=0.0
-	vycom(Ly)=0.0
-	vx1(Ly)=0.0
-	vy1(Ly)=0.0
-	
+	INTEGER :: iter, t_tot
+	REAL(kind=dp):: start, finish
+ 	INTEGER, ALLOCATABLE :: head(:,:), list(:), head1(:,:), list1(:)
+	REAL(kind=dp), ALLOCATABLE, DIMENSION(:) ::rx, ry, rx1, ry1, vx, vy, x_dummy, y_dummy
+	ALLOCATE(head(Ly,Lx), list(np), head1(0:Ly+1,Lx), list1(np))
+	ALLOCATE(rx(np), ry(np), rx1(np), ry1(np), vx(np), vy(np), x_dummy(np), y_dummy(np))
 	t_tot = tmax/dt_c
-	call cpu_time(start)
-	
-	call initialize(x_dummy, y_dummy, rx,ry,vx,vy, np, av, std, g)	 
-	call param_file(tmax,t_avg,g, avg_interval)
-	do iter=1,t_tot			
-		call streaming(rx, ry, rx1, ry1, vx, vy, np, l1, g)
+        call cpu_time(start)
+	!$ start = omp_get_wtime()
 
-		IF (obst==1) call par_in_cyl(l1, rx, ry, rx1, ry1,vx, vy, theta_intersect, g)
+	call initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list) 
+	call param_file()
+	do iter=1,t_tot
+		call streaming(rx, ry, rx1, ry1, vx, vy)
+
+		IF (obst==1) call par_in_cyl(rx, ry, rx1, ry1, vx, vy)
 		
 		if (.NOT. xy(2)) then 
 			IF (wall_thermal) THEN
-				call thermal_wall(rx, ry, rx1, ry1, vx, vy, Ly, g, np)
+				call thermal_wall(rx, ry, rx1, ry1, vx, vy)
 			ELSE
-				call bounce_wall(rx, ry, rx1, ry1, vx, vy, Ly, g, np)
+				call bounce_wall(rx, ry, rx1, ry1, vx, vy)
 			END IF
 		end if
-		call periodic_xy( rx1, ry1,np)
-	
+		call periodic_xy( rx1, ry1)
 		rx = rx1
 		ry = ry1
-
 		! Partitioning into cells
 		if (random_grid_shift == 0) then  			
-			call partition(rx1,ry1,head,list,Lx,Ly,np)
-			call collision(vx, vy, temp, temp_com, tempy, head, list, Lx, Ly )	! Collision without random grid shift      
+			call partition(rx1, ry1, head, list)
+			call collision(vx, vy, head, list )! Collision without random grid shift      
 		else 
-			call partition_rgs(rx1,ry1,head1,list1,Lx,Ly,np)	
-			call collision_rgs(vx, vy, head1, list1, Lx, Ly, np)
+			call partition_rgs(rx1, ry1, head1, list1)
+			call collision_rgs(vx, vy, head1, list1)
 		end if    					
 
 		if (mod(iter,10000) == 0) then
-			call cpu_time(finish)
-			write(*,*) "Time= ",iter,", run time= ",finish-start
+                        call cpu_time(finish)
+			!$ finish = omp_get_wtime()
+			PRINT '("Iteration = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
 		endif
 
 		! for averaging the values 
 		if (iter .GT. t_avg .AND. MODULO(iter - t_avg, avg_interval) == 0) then
-			if (random_grid_shift == 1) then
-				call partition(rx,ry,head,list,Lx,Ly,np)
-			end if
+			if (random_grid_shift == 1) call partition(rx,ry,head,list)
 			call v_avg(vx,vy, rx, ry, head,list) 
 		end if
 	end do
-
-
 	call cpu_time(finish)
-	print '("Time = ",f10.3," seconds.")',finish-start
-	!DEALLOCATE(rx, ry, rx1, ry1, vx, vy,l1,theta_intersect)	
+	!$ finish = omp_get_wtime()
+	PRINT '("Total Elapsed CPU run time =",F10.2," seconds")', finish-start
+
+	DEALLOCATE(head, list, head1, list1)
+	DEALLOCATE(rx, ry, rx1, ry1, vx, vy, x_dummy, y_dummy)
+	IF(obst == 1 ) THEN
+		DEALLOCATE(obst_par)
+		DEALLOCATE(theta_intersect)
+	END IF
 END PROGRAM SRD	
