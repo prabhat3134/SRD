@@ -8,7 +8,7 @@ REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828
 REAL, PARAMETER ::  kbT = 1.0, dt_c = 1.0, alpha = pi/2
 INTEGER, PARAMETER :: Ly = 50, Lx = 50, Gama = 10, m=1, a0=1, ensemble_num = 50000, half_plane =2, freq = 100
 REAL, PARAMETER :: rad = 10, xp = Lx/4.0, yp = Ly/2.0				! cylinder parameters
-INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1
+INTEGER, PARAMETER :: random_grid_shift = 1, mb_scaling = 1, obst = 0, verlet = 1, MPC_AT = 1
 INTEGER :: grid_check(Ly+2,Lx)=0
 LOGICAL, PARAMETER :: xy(2)=[.TRUE., .FALSE.], temperature = .TRUE., wall_thermal = .TRUE.
 REAL(kind=dp)  :: force(2), mu_tot
@@ -534,10 +534,16 @@ real(kind=dp), dimension(:) :: vx, vy
 integer, dimension(:) :: list
 integer, dimension(:,:)    ::   head
 integer, save :: mbs_iter = 0
-integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k
-real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale, vx_rel, vy_rel
+integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k, part_iter
+real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale, vx_rel, vy_rel, AT_vx(Gama*Ly*Lx), AT_vy(Gama*Ly*Lx), AT_mean(2)
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp(Ly,Lx), temp_com(Ly,Lx), tempy(Ly,Lx), Ek(Ly,Lx)
 
+IF (MPC_AT ==1) THEN
+	call random_normal(AT_vx,Gama*Ly*Lx,0.0,sqrt(kbT))
+	call random_normal(AT_vy,Gama*Ly*Lx,0.0,sqrt(kbT))
+END IF
+
+part_iter = 0
 out_unit=20
 vxcom=0.0
 vycom=0.0
@@ -571,41 +577,53 @@ do i=1,Ly
 		end if	
 		
 		temp_com(i,j) =  (0.5*(vxcom(i,j)**2 +  vycom(i,j)**2))
-		
 		! Rotation of velocity
-		ipar = head(i,j)
-		do while (ipar/=0) 	
-			temp(i,j) = temp(i,j) + (0.5*(vx(ipar)**2 -vxcom(i,j)**2 +  vy(ipar)**2 - vycom(i,j)**2))**2 			
-			vx_temp  = vx(ipar)-vxcom(i,j) 
-			vy_temp  = vy(ipar)-vycom(i,j) 			
-			vx(ipar) = vxcom(i,j) + cos(alpha1)*vx_temp + sin(alpha1)*vy_temp
-			vy(ipar) = vycom(i,j) - sin(alpha1)*vx_temp + cos(alpha1)*vy_temp		
-			Ek(i,j) = Ek(i,j) + 0.5*((vx(ipar) -vxcom(i,j))**2 +  (vy(ipar) - vycom(i,j))**2)  			
-			ipar = list(ipar)			
-		end do	
-		temp(i,j) = sqrt(temp(i,j)/count1)
-		
-		! obtaining the velocity scale factor
-		if (mb_scaling == 1 .and. mod(mbs_iter,freq) == 0 .and. count1 >= 3 ) then 
-			! count1 >=3: This condition satisfies for the minimum number of particles required for MB scaling
-			rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
-				
-			! scaling the relative velocities
-			ipar = head(i,j)			
-			
-			do while (ipar/=0)  
-				vx_rel = vx(ipar)-vxcom(i,j)
-				vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
-				vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
-				vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities 		
-				ipar = list(ipar)							! after collision using MBS scheme
+		IF (MPC_AT == 1) THEN
+			AT_mean(1) = SUM(AT_vx(part_iter+1:part_iter + count1))/count1
+			AT_mean(2) = SUM(AT_vy(part_iter+1:part_iter + count1))/count1
+			ipar = head(i,j)
+			do while (ipar/=0) 	
+				part_iter = part_iter + 1
+				vx(ipar) = vxcom(i,j) + AT_vx(part_iter) - AT_mean(1) 
+				vy(ipar) = vycom(i,j) + AT_vy(part_iter) - AT_mean(2)		
+				ipar = list(ipar)			
 			end do	
-		end if
-		
+		ELSE
+			ipar = head(i,j)
+			do while (ipar/=0) 	
+				temp(i,j) = temp(i,j) + (0.5*(vx(ipar)**2 -vxcom(i,j)**2 +  vy(ipar)**2 - vycom(i,j)**2))**2 			
+				vx_temp  = vx(ipar)-vxcom(i,j) 
+				vy_temp  = vy(ipar)-vycom(i,j) 			
+				vx(ipar) = vxcom(i,j) + cos(alpha1)*vx_temp + sin(alpha1)*vy_temp
+				vy(ipar) = vycom(i,j) - sin(alpha1)*vx_temp + cos(alpha1)*vy_temp		
+				Ek(i,j) = Ek(i,j) + 0.5*((vx(ipar) -vxcom(i,j))**2 +  (vy(ipar) - vycom(i,j))**2)  			
+				ipar = list(ipar)			
+				part_iter = part_iter + 1
+			end do	
+			temp(i,j) = sqrt(temp(i,j)/count1)
+			
+			! obtaining the velocity scale factor
+			if (mb_scaling == 1 .and. mod(mbs_iter,freq) == 0 .and. count1 >= 3 ) then 
+				! count1 >=3: This condition satisfies for the minimum number of particles required for MB scaling
+				rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
+					
+				! scaling the relative velocities
+				ipar = head(i,j)			
+				
+				do while (ipar/=0)  
+					vx_rel = vx(ipar)-vxcom(i,j)
+					vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
+					vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
+					vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities 		
+					ipar = list(ipar)							! after collision using MBS scheme
+				end do	
+			end if
+		END IF
 	end do
 	!write(out_unit,*), vxcom(i,:)
 end do	
 
+IF (part_iter .lt. Gama*Ly*Lx) write(*,*) "Particles missing from domain"
 end subroutine collision
 
 !***********************************************************************************************
@@ -617,12 +635,16 @@ real(kind=dp), dimension(:) :: vx, vy
 integer, dimension(:) :: list1
 integer, dimension(:,:)    ::   head1
 integer, save :: mbs_iter=0
-integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k, deficit, virtual(Ly+1,Lx)
-real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale, vx_rel, vy_rel
+integer :: i,j,count1, ipar, jpar, Lx, Ly, out_unit, k, deficit, virtual(Ly+1,Lx), part_iter
+real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale, vx_rel, vy_rel, AT_vx(Gama*Ly*Lx), AT_vy(Gama*Ly*Lx), AT_mean(2)
 real(kind=dp) :: vxcom(Ly+1,Lx), vycom(Ly+1,Lx), Ek(Ly+1,Lx), a(2)
 integer ::  np
 
-
+IF (MPC_AT ==1) THEN
+	call random_normal(AT_vx,Gama*Ly*Lx,0.0,sqrt(kbT))
+	call random_normal(AT_vy,Gama*Ly*Lx,0.0,sqrt(kbT))
+END IF
+part_iter = 0
 out_unit=20
 vxcom=0.0
 vycom=0.0
@@ -665,38 +687,51 @@ do i=1,Ly+1
 		end if	
 		
 		! Rotation of velocity
-		ipar = head1(i,j)
-		do while (ipar/=0) 				
-			vx_temp  = vx(ipar)-vxcom(i,j) 
-			vy_temp  = vy(ipar)-vycom(i,j) 			
-			vx(ipar) = vxcom(i,j) + cos(alpha1)*vx_temp + sin(alpha1)*vy_temp
-			vy(ipar) = vycom(i,j) - sin(alpha1)*vx_temp + cos(alpha1)*vy_temp
-			Ek(i,j) = Ek(i,j) + 0.5*((vx(ipar) -vxcom(i,j))**2 +  (vy(ipar) - vycom(i,j))**2) 					
-			ipar = list1(ipar)			
-		end do	
-		!temp(i,j) = sqrt(temp(i,j)/count1)
-		
-		! obtaining the velocity scale factor
-		if (mb_scaling == 1 .and. mod(mbs_iter,freq) == 0) then 
-			! count1 >=3: This condition satisfies for the minimum number of particles required for MB scaling
-			if (count1 >= 3 .and. virtual(i,j)==0 ) then
-				
-				rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
+		IF (MPC_AT == 1) THEN
+			AT_mean(1) = SUM(AT_vx(part_iter+1:part_iter + count1))/count1
+			AT_mean(2) = SUM(AT_vy(part_iter+1:part_iter + count1))/count1
+			ipar = head1(i,j)
+			do while (ipar/=0) 	
+				part_iter = part_iter + 1
+				vx(ipar) = vxcom(i,j) + AT_vx(part_iter) - AT_mean(1) 
+				vy(ipar) = vycom(i,j) + AT_vy(part_iter) - AT_mean(2)		
+				ipar = list1(ipar)			
+			end do	
+		ELSE
+			ipar = head1(i,j)
+			do while (ipar/=0) 				
+				vx_temp  = vx(ipar)-vxcom(i,j) 
+				vy_temp  = vy(ipar)-vycom(i,j) 			
+				vx(ipar) = vxcom(i,j) + cos(alpha1)*vx_temp + sin(alpha1)*vy_temp
+				vy(ipar) = vycom(i,j) - sin(alpha1)*vx_temp + cos(alpha1)*vy_temp
+				Ek(i,j) = Ek(i,j) + 0.5*((vx(ipar) -vxcom(i,j))**2 +  (vy(ipar) - vycom(i,j))**2) 					
+				ipar = list1(ipar)			
+				part_iter = part_iter + 1
+			end do	
+			!temp(i,j) = sqrt(temp(i,j)/count1)
+			
+			! obtaining the velocity scale factor
+			if (mb_scaling == 1 .and. mod(mbs_iter,freq) == 0) then 
+				! count1 >=3: This condition satisfies for the minimum number of particles required for MB scaling
+				if (count1 >= 3 .and. virtual(i,j)==0 ) then
+					
+					rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 					! Implementing MB scaling 
 
-				! scaling the relative velocities
-				ipar = head1(i,j)			
-				do while (ipar/=0)  
-					vx_rel = vx(ipar)-vxcom(i,j)
-					vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
-					vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
-					vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities
-					ipar = list1(ipar)							! after collision using MBS scheme
-				end do	
+					! scaling the relative velocities
+					ipar = head1(i,j)			
+					do while (ipar/=0)  
+						vx_rel = vx(ipar)-vxcom(i,j)
+						vy_rel = vy(ipar)-vycom(i,j)						! Relative velocities after collision
+						vx(ipar)  = vxcom(i,j) + rel_vel_scale*(vx_rel) 			
+						vy(ipar)  = vycom(i,j) + rel_vel_scale*(vy_rel) 			! Add scaled relative velocities
+						ipar = list1(ipar)							! after collision using MBS scheme
+					end do	
+				end if	
 			end if	
-		end if	
+		END IF
 	end do
 end do	
-
+IF (part_iter .lt. Gama*Ly*Lx) write(*,*) "Particles missing from domain"
 end subroutine collision_rgs
 
 !****************************************************************
@@ -944,7 +979,7 @@ REAL  :: g
 INTEGER :: tmax, t_avg, avg_interval
 
 OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
-
+Write(10,*) "Simulation used in the algorithm: ", merge('MPC-AT','   SRD', MPC_AT == 1)
 write(10,*)"Parameters used in the current simulation to which the data belongs"
 write(10,*) "Particle density: ",Gama
 write(10,*) "alpha rotation: ",alpha
