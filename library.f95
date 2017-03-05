@@ -9,7 +9,7 @@ REAL(kind=dp), PARAMETER ::  alpha = pi/2.0d0, kbT = 1.0d0, dt_c =0.1d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 5.0d-4
 ! time values
-INTEGER :: tmax=200000, t_avg = 500000, avg_interval=1, ensemble_num = 100000
+INTEGER :: tmax=52000, t_avg = 500000, avg_interval=1, ensemble_num = 100000
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down
 ! Thermostat
@@ -145,14 +145,15 @@ subroutine initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list)
 implicit none
 INTEGER ::  i, j, ipar, p_count, head(:,:), list(:)
 REAL(kind=dp) ::  block(3), vp_max 
-REAL(kind = dp) :: x_dummy(:), y_dummy(:), mu_kin, mu_col
+REAL(kind = dp) :: x_dummy(:), y_dummy(:), mu_kin, mu_col, RE
 REAL(kind=dp) :: rx(:), ry(:), vx(:), vy(:), vxcom(Ly,Lx),vycom(Ly,Lx)
 
 mu_kin = (gama*kbT*dt_c)*(gama/((gama - 1.0 + exp(-1.0*gama))*(1.0-cos(2.0*alpha)))- 0.5)
 mu_col = ((1.0-cos(alpha))/(12.0*dt_c))*(gama - 1.0 + exp(-1.0*gama))
 mu_tot = mu_kin + mu_col
 vp_max = (Gama * Ly**2.0 *f_b)/(8.0*mu_tot)
-!write(*,*) vp_max, mu_tot
+RE = Gama*vp_max*Ly/mu_tot
+!write(*,*) vp_max, mu_tot, RE
 !stop
 block = [xp,yp,rad]
 do i=1, np
@@ -761,7 +762,6 @@ do j=1,Lx
 			Ek(i,j) = Ek(i,j) + 0.5*((vx(ipar) -vxcom(i,j))**2 +  (vy(ipar) - vycom(i,j))**2)
 			ipar = list1(ipar)
 		end do
-		
 		rel_vel_scale = 1.0
 		!Obtain the scale factor for MB scaling 
 		if (mb_scaling == 1 .and. mod(mbs_iter, mbs_freq) == 0 .and. count1 >= 3 .and. virtual(i,j)==0 ) then
@@ -861,21 +861,24 @@ INTEGER,PARAMETER :: grid_points = half_plane*Ly + 1
 real(kind=dp), dimension(:) :: vx, vy, rx, ry
 integer   :: head(:,:), list(:)
 integer, save ::  t_count = 0, file_count = 0
-integer :: i, j, k, ipar, p_count, out_unit, y_low, y_up, density(Ly,Lx)
-real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx),  weight, plane_pos
-real(kind=dp), save :: vx1(Ly,Lx)=0.0d0, vy1(Ly,Lx)=0.0d0, forcing(2) = 0.0d0, tx(Ly,Lx) = 0.0d0, dens(Ly,Lx) = 0.0,&
-vx_avg(grid_points)=0.0, vy_avg(grid_points)=0.0,  tot_part_count(grid_points)=0.0	! every grid points considered from 0 to Ly
-logical :: Lexist
+integer :: i, j, k, ipar, p_count, out_unit, density(Ly,Lx),den_t(4)
+real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx),  weight, plane_pos, vxc, vyc
+real(kind=dp), save :: vx1(Ly,Lx)=0.0d0, vy1(Ly,Lx)=0.0d0, forcing(2) = 0.0d0, tx(Ly,Lx) = 0.0d0, dens(Ly,Lx) = 0.0d0,&
+vx_avg(grid_points)=0.0d0, vy_avg(grid_points)=0.0d0,  tot_part_count(grid_points)=0.0d0! every grid points considered from 0 to Ly
+logical :: Lexist, image
 CHARACTER(LEN=200)  :: fname
+integer,save :: interval = 0, den_count(4) = 0, png_write_count=0
+real(kind=dp),save :: den_interval(Ly,Lx,4) = 0.0d0
 
+image = .TRUE.
 vxcom   = 0.0
 vycom   = 0.0
 out_unit = 20
 temp_com = 0.0
 density   = 0.0
-
+den_t = (/1,10,25,50/)
 t_count = t_count+1
-!$OMP PARALLEL DO PRIVATE(i,p_count,ipar,plane_pos,weight,k)
+!$OMP PARALLEL DO PRIVATE(i,j,p_count,vxc,vyc,ipar,plane_pos,weight,k)
 do j = 1,Lx    			  			
 do i = 1,Ly
 	p_count = 0
@@ -884,29 +887,33 @@ do i = 1,Ly
 		vxcom(i,j) = vxcom(i,j) + vx(ipar)
 		vycom(i,j) = vycom(i,j) + vy(ipar)
 		p_count = p_count + 1
-		IF (half_plane==2) THEN
-			plane_pos = i-0.5
-			weight  = (ry(ipar)-plane_pos)/0.5
-			If (weight < 0.0) weight = 1 + weight
-			k = merge(i*half_plane, i*half_plane-1, ry(ipar) .gt. plane_pos)
-		ELSE
-			plane_pos = i-1
-			weight = ry(ipar)-plane_pos
-			k = i
+		IF (obst == 0) THEN
+			IF (half_plane==2) THEN
+				plane_pos = i-0.5
+				weight  = (ry(ipar)-plane_pos)/0.5
+				If (weight < 0.0) weight = 1 + weight
+				k = merge(i*half_plane, i*half_plane-1, ry(ipar) .gt. plane_pos)
+			ELSE
+				plane_pos = i-1
+				weight = ry(ipar)-plane_pos
+				k = i
+			END IF
+			vx_avg(k)   = vx_avg(k)   + vx(ipar)*(1-weight)
+			vx_avg(k+1) = vx_avg(k+1) + vx(ipar)*weight
+			vy_avg(k)   = vy_avg(k)   + vy(ipar)*(1-weight)
+			vy_avg(k+1) = vy_avg(k+1) + vy(ipar)*weight
+			tot_part_count(k) = tot_part_count(k) + (1-weight)
+			tot_part_count(k+1) = tot_part_count(k+1) + weight
 		END IF
-		vx_avg(k)   = vx_avg(k)   + vx(ipar)*(1-weight)
-		vx_avg(k+1) = vx_avg(k+1) + vx(ipar)*weight
-		vy_avg(k)   = vy_avg(k)   + vy(ipar)*(1-weight)
-		vy_avg(k+1) = vy_avg(k+1) + vy(ipar)*weight
-		tot_part_count(k) = tot_part_count(k) + (1-weight)
-		tot_part_count(k+1) = tot_part_count(k+1) + weight
 		ipar = list(ipar)
 	end do
 	density(i,j) = p_count
 	if(temperature .and. p_count > 1) then
+		vxc = vxcom(i,j)/p_count
+		vyc = vycom(i,j)/p_count
 		ipar = head(i,j)    			  		
 		do while (ipar/=0)
-			temp_com(i,j) = temp_com(i,j) + 0.5*((vx(ipar) - vxcom(i,j))**2 + (vy(ipar) - vycom(i,j))**2) 					
+			temp_com(i,j) = temp_com(i,j) + 0.5*((vx(ipar) - vxc)**2 + (vy(ipar) - vyc)**2) 					
 			ipar = list(ipar)		
 		end do
 		temp_com(i,j) = temp_com(i,j)/(p_count - 1)
@@ -914,17 +921,37 @@ do i = 1,Ly
 end do
 end do 
 !$OMP END PARALLEL DO
-	
-! write(*,*) temp_com(1,1)
-! 	write (fname, "(A<LEN(trim(file_name))>,A10)") trim(file_name),"_energy"                            
-! 	inquire(file = trim(data_path)//trim(fname)//'.dat', exist = Lexist)  	
-! 	if (Lexist) then	
-! 		open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',status="old",action="write",position="append")
-!     	else
-! 		open(unit = out_unit, file=trim(data_path)//trim(fname)//'.dat', status = "new", action = "write")
-! 	end if	
-!     	write (out_unit,"(<Ly>F10.5)") temp_com(:,1)
-!     	close(out_unit)
+IF (image)THEN
+	DO i=1,4
+		den_interval(:,:,i) = den_interval(:,:,i) + density
+	END DO
+	interval = interval + 1
+	DO i=1,4
+		IF (modulo( interval , den_t(i) )==0 ) THEN
+			den_count(i) = den_count(i) + 1
+			write (fname, "(A10,I0,A1,I0)") "shock_rho_",den_t(i),"_",den_count(i)                             
+			open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+			DO j=1,Ly
+				write (out_unit,"(<Lx/2>F10.5)") den_interval(j,1:Lx/2,i)/(den_t(i)*1.0d0)
+			END DO
+			close(out_unit)
+			write (fname, "(A10,I0,A1,I0)") "shock_col_",den_t(i),"_",den_count(i)                             
+			open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+			DO j=1,Lx
+				write (out_unit,"(4F10.5)") (den_interval(k,j,i)/(den_t(i)*1.0d0),k=20,80,20)
+			END DO
+			close(out_unit)
+			den_interval(:,:,i) = 0.0d0
+		END IF
+	END DO
+	IF (interval == den_t(4)) then
+		interval = 0
+		! call the script to plot the .png files & delete the data files
+		write (fname, "(I0,A1,I0,A1,I0,A1,I0, A1,I0)")den_count(1)," ",den_count(2)," ",den_count(3)," ",den_count(4)," ",png_write_count                              
+		call system('./png_script.sh '//trim(fname))
+		png_write_count = png_write_count + 1 
+	ENDIF
+END IF
 
 vx1 = vx1 + vxcom
 vy1 = vy1 + vycom
@@ -957,23 +984,22 @@ if (modulo(t_count,ensemble_num)==0) then
 
 	write (fname, "(A<LEN(trim(file_name))>,A7,I0)") trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-	
-	DO i=1,half_plane*Ly+1
-		write(out_unit,*) (i*1.0-1)/(half_plane*1.0),vx_avg(i),vy_avg(i)
-	END DO
-!	write (out_unit,"(<half_plane*Ly+1>F10.5)") vx_avg	!could also directly use the size(vx_avg) in format string
-!	write (out_unit,"(<half_plane*Ly+1>F10.5)") vy_avg
-!	do i = 1,Ly
-!		write (out_unit,"(<Lx>F10.5)") vx1(i,:)
-!	end do
-!	do i = 1,Ly
-!		write (out_unit,"(<Lx>F10.5)") vy1(i,:)
-!	end do
+	IF (obst == 0) THEN
+		DO i=1,half_plane*Ly+1
+			write(out_unit,*) (i*1.0-1)/(half_plane*1.0),vx_avg(i),vy_avg(i)
+		END DO
+	ELSE
+		do i = 1,Ly
+			write (out_unit,"(<Lx>F10.5)") vx1(i,:)
+		end do
+		do i = 1,Ly
+			write (out_unit,"(<Lx>F10.5)") vy1(i,:)
+		end do
+	END IF
 	close(out_unit)	
 	
 	write (fname, "(A<LEN(trim(file_name))>,A5,I0)") trim(file_name),"_rho_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-    	
 	do i = 1,Ly
 		write (out_unit,"(<Lx>F10.5)") dens(i,:)
 	end do
@@ -987,15 +1013,15 @@ if (modulo(t_count,ensemble_num)==0) then
 		end do
 		close(out_unit)
 	end if
-	vx1 = 0.0
-	vy1 = 0.0
-	vx_avg = 0.0
-	vy_avg = 0.0
-	tot_part_count=0.0
-	tx  = 0.0
-	dens= 0.0
+	vx1 = 0.0d0
+	vy1 = 0.0d0
+	vx_avg = 0.0d0
+	vy_avg = 0.0d0
+	tot_part_count=0.0d0
+	tx  = 0.0d0
+	dens= 0.0d0
 	t_count = 0	
-	forcing = 0.0
+	forcing = 0.0d0
 end if    		
 
 end subroutine v_avg
@@ -1055,6 +1081,10 @@ end subroutine bounce_wall
 ! for writing file which gives the details of all parameters used in the simulation
 SUBROUTINE param_file()
 implicit none
+real(kind=dp) :: Vp,Re
+
+Vp = (Gama * Ly**2.0 *f_b)/(8.0*mu_tot)
+Re = (Gama * Vp * Ly )/mu_tot
 
 OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
 
@@ -1085,7 +1115,8 @@ write(10,*) "Number of samples considered for average : ",ensemble_num
 write(10,*) "Mid plane of every cell used for averaging: ", merge('Yes',' No',half_plane == 2)
 write(10,*)
 write(10,*) "Analytical Viscosity as per given condition:  ",mu_tot 
-write(10,*) "Maximum Poiseuille velocity (analytical): ", (Gama * Ly**2.0 *f_b)/(8.0*mu_tot)
+write(10,*) "Maximum Poiseuille velocity (analytical): ", Vp
+write(10,*) "Maximum Reynolds number: ", Re
 write(10,*)
 IF (obst == 1) write(10,*) "Cylinder centre position: ",xp,yp," and its radius: ",rad
 close(10)
