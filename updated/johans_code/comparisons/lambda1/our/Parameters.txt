@@ -1,0 +1,29 @@
+ Parameters used in the current simulation to which the data belongs
+ Particle density:           10
+ alpha rotation:    1.57079632679490     
+ kbT:    1.00000000000000     
+ Domain size Ly,Lx:         100         500
+ 
+ Time step used:    1.00000000000000     
+ Total time:      1000000
+ Total iterations:    1000000.00000000     
+ Force applied:  5.000000000000000E-006
+ 
+ Streaming Algorithm:    Verlet
+ Periodicity in x: Yes
+ Periodicity in y:  No
+ Random Grid Shift applied: Yes
+ Wall Boundary Condition:  Bounce wall
+ 
+ MC applied: Yes
+ Strength of MC:   0.250000000000000     
+ MBS applied:  No
+ Averaging starts from iteration:       500000
+ Interval between samples considered for average:            1
+ Number of samples considered for average :       100000
+ Mid plane of every cell used for averaging:  No
+ 
+ Analytical Viscosity as per given condition:     1.30553111337976     
+ Maximum Poiseuille velocity (analytical):   4.787323669230670E-002
+ Maximum Reynolds number:    36.6695486623619     
+ 

@@ -1,0 +1,47 @@
+#    Makefile for sediment2d and initiate2d
+
+###Intel fortran compiler Pentium IV options
+###Debug options:
+#OPT = -axW -cpp -CA -CB -CS -CU -CV -d3 -implicitnone -g
+###Optimized options:
+OPT = -xW -cpp 
+###Generate profiling code (use gprof)
+#OPT = -O3 -xW -cpp -tpp7 -ipo -pg
+###Use profiler info:
+#1) compile with these options and run
+#OPT = -O3 -xW -cpp -tpp7 -ipo -prof_gen
+#2) then compile with these options
+#OPT = -O3 -xW -cpp -tpp7 -ipo -prof_use
+###Parallel options:
+#USEOPENMP = -DUSEOPENMP
+#OPT = -axW -cpp -CA -CB -CS -CV -d3 -implicitnone -g -openmp -openmp_report2 -static
+#OPT = -xW -cpp -O3 -tpp7 -ipo -openmp -static
+#OPT = -xW -cpp -O3 -tpp7 -ipo -openmp -static -pg
+###Portland group compiler Pentium IV options
+###Debug parallel options:
+#OPT = -g -C -mp
+###Optimized parallel options:
+#OPT = -fastsse -mp -tp piv -Mvect=sse
+###Generate profiling code (use pgprof)
+#OPT = -fastsse -mp -tp piv -qp -Mprof=lines
+
+# Select compiler 
+FCOMP     = ifort
+#FCOMP     = pgf90
+
+all:	sediment2d initiate2d initiate2d_square
+
+sediment2d:	sediment2d.o random.o correlate.o pdb.o
+	$(FCOMP) -o sediment2d sediment2d.o random.o correlate.o pdb.o $(OPT)
+
+initiate2d:	initiate2d.o random.o
+	$(FCOMP) -o initiate2d initiate2d.o random.o $(OPT)
+
+initiate2d_square:	initiate2d_square.o random.o
+	$(FCOMP) -o initiate2d_square initiate2d_square.o random.o $(OPT)
+
+clean:
+	rm -f *.o *.exe work.pc* *.il
+
+.F.o:	$(INCLUDE)
+	$(FCOMP) -c $(OPT) $(USEOPENMP) $*.F 
