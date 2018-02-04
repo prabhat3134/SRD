@@ -1,0 +1,52 @@
+### colloid parameters #####################################
+0      ;number of colloids
+0.5     ;fraction of colloids pulled in opposite direction
+50.     ;mass of colloid                  (solvent masses)
+4.3     ;colloid diameter                 (lattice spacings)
+2.5d0   ;LJ repulsive strength            (kT)
+0.d0    ;Yukawa interaction strength      (kT)
+4.0     ;Yukawa inverse screening length  (inv.latt.spacings)
+8.0     ;Yukawa cut-off radius            (lattice spacings)
+55.0    ;colloidal friction (Brownian case)
+### depletant (polymer) parameters #########################
+0       ;number of depletants
+100.0   ;mass of depletant                (solvent masses)
+0.8     ;radius of gyration of depletant  (lattice spacings)
+0.d0    ;pol-pol interaction strength     (kT)
+10.0    ;depletant friction (Brownian case)
+### solvent parameters #####################################
+500000   ;number of solvent particles
+0.0     ;colloid-solvent interaction range
+1       ;number of MD steps between each collision (icol)
+### simulation parameters ##################################
+0.25   ;MD time step
+1000000 ;total number of steps
+864000.  ;maximum CPU time (seconds)
+10000   ;save interval
+0       ;continuation run (1) or not (0)
+0.     ;list radius for depletant cell linked list
+100     ;number of cells in x-direction
+500     ;number of cells in y-direction
+1       ;walls (1) or periodic boundaries (0) in x-direction
+0       ;walls (1) or periodic boundaries (0) in y-direction
+0       ;use (1) or don't use (0) flowing boundary conditions
+0.0     ;solvent inflow velocity (in case of flowing boundary)
+1       ;use thermostat on system (1) or not (0)
+1       ;hydrodynamics (1), velocity exchange (0), or Brownian (-1)
+1.0d-5   ;external force on solvent (pos.) or colloids (neg.)
+0.0     ;switching frequency for external force
+0      ;fix solvent centre-of-mass (1) or total centre-of-mass (-1)
+0       ;fix depletant centre-of-mass
+0       ;fix EACH colloid
+### analysis parameters ####################################
+0      ;force autocorrelation sample interval
+0      ;velocity autocorrelation sample interval
+1     ;coarse-grained velocity sample interval
+0       ;stress tensor sample interval
+0      ;dynamic structure factor sample interval
+0       ;density map sample interval (pos: z-rho plane; neg: z-x plane)
+1.0     ;density map bin width (dbin)
+0     ;colloidal radial distribution sample interval
+0.2     ;g(r) bin width
+0       ;order parameter sample interval
+-100   ;PDB output interval (negative = movie)
