@@ -9,11 +9,11 @@ REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d-4
 ! time values
-INTEGER :: tmax = 100, t_avg = 0, avg_interval=20, ensemble_num = 1
+INTEGER :: tmax = 5e4, t_avg = 3e4, avg_interval=5e3, ensemble_num = 1
 ! RGS, streaming
 INTEGER :: random_grid_shift = 0, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
-INTEGER :: mb_scaling = 1, MC_scaling = 0, mbs_freq = 20
+INTEGER :: mb_scaling = 0, MC_scaling = 0, mbs_freq = 20
 REAL(kind=dp) :: force(2), mu_tot, MC_strength = 0.25d0
 LOGICAL :: xy(2)=[.TRUE., .FALSE.], temperature = .TRUE., wall_thermal = .FALSE.
 LOGICAL :: R_P = .FALSE., slip = .TRUE.
@@ -627,7 +627,8 @@ implicit none
 INTEGER :: grid_check(:,:), i, j, x, y
 REAL(kind=dp) ::  xc, yc, l, b, R, rtmp
 
-grid_check(0:Ly+1,:) = 0
+!grid_check(0:Ly+1,:) = 0	! This works for ifort compiler
+grid_check(:,:) = 0		! This works for gfortran compiler
 if (obst_shape==1) then	! for cylinder [center x, center y, radius]
 	xc = xp
 	yc = yp
@@ -705,7 +706,8 @@ integer, dimension(:,:)    ::   head1
 integer :: xindex, yindex, i 
 real(kind = dp) :: x_rand, y_rand, xindex_temp, yindex_temp
 
-head1(0:Ly+1,:) = 0		!for negative indices, use indexing fully and not the default one
+!head1(0:Ly+1,:) = 0		! This works for ifort
+head1(:,:) = 0			! This kind of initialization works for gfortran (for negative indices, use indexing fully and not the default one)
 list1(:) = 0
 x_rand = ran()-0.5
 y_rand = ran()-0.5
