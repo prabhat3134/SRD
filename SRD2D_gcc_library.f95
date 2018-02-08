@@ -15,7 +15,7 @@ INTEGER :: random_grid_shift = 0, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx
 ! Thermostat
 INTEGER :: mb_scaling = 0, MC_scaling = 0, mbs_freq = 20
 REAL(kind=dp) :: force(2), mu_tot, MC_strength = 0.25d0
-LOGICAL :: xy(2)=[.TRUE., .FALSE.], temperature = .TRUE., wall_thermal = .FALSE.
+LOGICAL :: xy(2)=[.TRUE., .TRUE.], temperature = .TRUE., wall_thermal = .FALSE.
 LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! File naming 
@@ -618,6 +618,14 @@ if (xy(2)) then
         END DO
         !$OMP END PARALLEL DO
 end if
+
+!if (scrambling == 'TRUE') then
+!	DO i=1,np
+!		IF ( ry(i) >= Ly-scramble_B .OR. ry(i) <= scramble_B .OR. rx(i) >= Lx-scramble_B .OR. rx(i) <= scramble_B ) THEN
+!			dx = 
+!		END IF
+!	END DO
+!end if
 
 end subroutine periodic_xy
 !********************************************************
