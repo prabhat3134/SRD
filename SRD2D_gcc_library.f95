@@ -20,7 +20,7 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! File naming 
 INTEGER :: wall_oscillatory = 0
-LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE.
+LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
 CHARACTER(len=100) :: file_name='equi', data_path='./' 
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
@@ -1166,7 +1166,7 @@ do i = 1,Ly
 		vxcom(i,j) = vxcom(i,j) + vx(ipar)
 		vycom(i,j) = vycom(i,j) + vy(ipar)
 		p_count = p_count + 1
-		IF (obst == 0) THEN
+		IF ( write_poise_vel ) THEN
 			IF (half_plane==2) THEN
 				plane_pos = i-0.5
 				weight  = (ry(ipar)-plane_pos)/0.5
@@ -1280,17 +1280,15 @@ if (modulo(t_count,ensemble_num)==0) then
 	file_count = file_count+1
     	
 	! Averaging all the velocities over the respective particles and time
-	vx_avg = vx_avg/tot_part_count
-	vy_avg = vy_avg/tot_part_count
 	
 	vx1 = vx1/dens
 	vy1 = vy1/dens
-        DO j=1,Lx
-        DO i=1,Ly
-                IF (isnan(vx1(i,j))) vx1(i,j) = 0.0d0
-                IF (isnan(vy1(i,j))) vy1(i,j) = 0.0d0
-        END DO
-        END DO
+    DO j=1,Lx
+    DO i=1,Ly
+            IF (isnan(vx1(i,j))) vx1(i,j) = 0.0d0
+            IF (isnan(vy1(i,j))) vy1(i,j) = 0.0d0
+    END DO
+    END DO
 	forcing = forcing/t_count
 	tx = tx/t_count
 	dens = dens/t_count
@@ -1308,7 +1306,9 @@ if (modulo(t_count,ensemble_num)==0) then
 	write (fmt_spec,'(a,I0,a)') '(A', len_trim(file_name), ', A7, I0)'
 	write (fname, fmt = fmt_spec ) trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-	IF (obst == 0 .and. .NOT.(R_P)) THEN
+	IF ( write_poise_vel ) THEN
+        vx_avg = vx_avg/tot_part_count
+        vy_avg = vy_avg/tot_part_count
 		DO i=1,half_plane*Ly+1
 			write(out_unit,*) (i*1.0-1)/(half_plane*1.0),vx_avg(i),vy_avg(i)
 		END DO
