@@ -7,11 +7,11 @@ REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0
 INTEGER, PARAMETER :: Ly = 32, Lx = 32, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
-REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d-4
+REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
 INTEGER :: tmax = 5e4, t_avg = 3e4, avg_interval=1, ensemble_num = 5e3
 ! RGS, streaming
-INTEGER :: random_grid_shift = 0, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
+INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
 INTEGER :: mb_scaling = 0, MC_scaling = 0, mbs_freq = 20
 REAL(kind=dp) :: force(2), mu_tot, MC_strength = 0.25d0
@@ -20,8 +20,7 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-INTEGER :: scramble_exponent = 3
-REAL(kind=dp) :: scramble_B = 5.0, scramble_U0 = 0.2d0
+REAL(kind=dp) :: scramble_B = 2.0, scramble_U0 = 0.2d0,  scramble_exponent = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
@@ -323,6 +322,11 @@ ry = y_dummy
 
 call random_normal(vx,np,avg,std)
 call random_normal(vy,np,avg,std)
+
+IF ( scrambling ) THEN
+    call random_normal(vx,np, scramble_U0, std )
+    call random_normal(vy,np,avg,std)
+END IF
 
 IF (R_P) call Riemann_initial( rx, ry, vx, vy )
 
@@ -677,16 +681,16 @@ IF ( scrambling ) THEN
 		ELSE
 			IF ( ry1(i) >= Ly-scramble_B) THEN
 			! region 3
-			dout = Ly - ry1(i)
-			call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+                dout = Ly - ry1(i)
+                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
 			ELSE IF ( ry1(i) <= scramble_B) THEN
 			! region 7
-			dout = ry1(i)
-			call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+                dout = ry1(i)
+                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
 			ENDIF
 		END IF
 	END DO
-!$OMP END DO
+    !$OMP END DO
 END IF 
 !$OMP END PARALLEL 
 end subroutine periodic_xy
@@ -695,24 +699,24 @@ subroutine scramble_pos_vel(rx, ry, vx, vy, dout, flag)
 	implicit none
 	INTEGER :: flag
 	REAL(kind=dp) :: rx, ry, vx, vy, dout
-REAL(kind=dp) :: prob_disp, normal_vel(1)
+    REAL(kind=dp) :: prob_disp, normal_vel(1)
 
 	prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
 	IF ( prob_disp >= ran() ) THEN
-	IF ( flag == 1 ) THEN   ! horizontal displacement
-	rx = (Lx - 2.0*dout)*ran() + dout 
-	ELSE
-	ry = (Ly - 2.0*dout)*ran() + dout 
-	ENDIF
-	call random_normal( normal_vel, 1, scramble_U0, std) 
-	vx = normal_vel(1)
-	call random_normal( normal_vel, 1, avg, std) 
-vy = normal_vel(1)
+        IF ( flag == 1 ) THEN   ! horizontal displacement
+            rx = (Lx - 2.0*dout)*ran() + dout 
+        ELSE
+            ry = (Ly - 2.0*dout)*ran() + dout 
+        ENDIF
+        call random_normal( normal_vel, 1, scramble_U0, std) 
+        vx = normal_vel(1)
+        call random_normal( normal_vel, 1, avg, std) 
+        vy = normal_vel(1)
 	END IF
-	end subroutine scramble_pos_vel
+end subroutine scramble_pos_vel
 
-	!********************************************************
-	! Grid check, gives which grids are overlapping with obstacles for further use in collision
+!********************************************************
+! Grid check, gives which grids are overlapping with obstacles for further use in collision
 subroutine gridcheck(grid_check)
 	implicit none
 	INTEGER :: grid_check(:,:), i, j, x, y
