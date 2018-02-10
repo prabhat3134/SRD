@@ -1,7 +1,7 @@
 module SRD_library
 use omp_lib
 implicit none
-INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 30, m=1, a0=1
+INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
 INTEGER, PARAMETER :: Ly = 32, Lx = 32, np = Ly*Lx*Gama, half_plane = 1
@@ -9,7 +9,7 @@ REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d-4
 ! time values
-INTEGER :: tmax = 5e4, t_avg = 3e4, avg_interval=5e3, ensemble_num = 1
+INTEGER :: tmax = 5e4, t_avg = 3e4, avg_interval=1, ensemble_num = 5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 0, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -21,7 +21,7 @@ REAL(kind=dp) :: RP_ratio = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE.
-CHARACTER(len=100) :: file_name='RP', data_path='./' 
+CHARACTER(len=100) :: file_name='equi', data_path='./' 
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 0, obst_shape = 1
@@ -588,7 +588,7 @@ end subroutine pos_thermal_update
 ! Periodic boundary condition in x and y as per the condition given by xy
 subroutine periodic_xy( rx1, ry1)
 implicit none
-real(kind = dp) :: rx1(:), ry1(:) 
+REAL(kind = dp) :: rx1(:), ry1(:), dout, prob_disp, normal_velx(1), normal_vely(1)
 INTEGER :: i
 
 if (xy(1)) then
@@ -619,15 +619,101 @@ if (xy(2)) then
         !$OMP END PARALLEL DO
 end if
 
-!if (scrambling == 'TRUE') then
-!	DO i=1,np
-!		IF ( ry(i) >= Ly-scramble_B .OR. ry(i) <= scramble_B .OR. rx(i) >= Lx-scramble_B .OR. rx(i) <= scramble_B ) THEN
-!			dx = 
-!		END IF
-!	END DO
-!end if
+if (scrambling == 'TRUE') then
+	DO i=1,np
+		IF ( rx(i) <= scramble_B ) THEN
+			dout = rx(i)
+			prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+			call random_normal( normal_velx, 1, scramble_U0, std) 
+			call random_normal( normal_vely, 1, avg, std) 
+			IF ( ry(i) >= scramble_B .AND. ry(i) <= Ly-scramble_B) THEN
+				!region 1 
+				IF ( prob_disp >= ran() )	
+					ry(i) = (Ly - 2.0*dout)*ran() + dout 		
+					vx(i) = normal_velx
+					vy(i) = normal_vely
+				END IF
+			ELSE IF ( ry(i) < scramble_B) THEN
+				!region 8 
+				IF ( ry(i) >= dout ) THEN
+					IF ( prob_disp >= ran() ) THEN	
+						ry(i) = (Ly - 2.0*dout)*ran() + dout 		
+						vx(i) = normal_velx
+						vy(i) = normal_vely
+					ENDIF
+				ELSE 
+					dout = ry(i)
+					prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+					IF ( prob_disp >= ran() ) THEN	
+						rx(i) = (Lx - 2.0*dout)*ran() + dout 		
+						vx(i) = normal_velx
+						vy(i) = normal_vely
+					ENDIF
+				END IF
+			ELSE
+			!region 2 
+
+			ENDIF
+		ELSE IF ( rx(i) >= Lx-scramble_B ) THEN
+			IF ( ry(i) >= scramble_B .AND. ry(i) <= Ly-scramble_B) THEN
+			!region 5
+				dout = Lx - rx(i)
+				prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+				
+				IF ( prob_disp >= ran() )	
+					ry(i) = (Ly - 2.0*dout)*ran() + dout 		
+					call random_normal( normal_vel, 1, scramble_U0, std) 
+					vx(i) = normal_vel
+					call random_normal( normal_vel, 1, avg, std) 
+					vy(i) = normal_vel
+				END IF
+			
+			ELSE IF ( ry(i) < scramble_B) THEN
+			!region 6
+
+			ELSE
+			!region 4
+
+			ENDIF
+
+		ELSE
+			IF ( ry(i) >= Ly-scramble_B) THEN
+			! region 3
+				dout = Ly - ry(i)
+				prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+				
+				IF ( prob_disp >= ran() )	
+					rx(i) = (Lx - 2.0*dout)*ran() + dout 		
+					call random_normal( normal_vel, 1, scramble_U0, std) 
+					vx(i) = normal_vel
+					call random_normal( normal_vel, 1, avg, std) 
+					vy(i) = normal_vel
+				END IF
+			ELSE IF ( ry(i) <= scramble_B) THEN
+			! region 7
+				dout = ry(i)
+				prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+				
+				IF ( prob_disp >= ran() )	
+					rx(i) = (Lx - 2.0*dout)*ran() + dout 		
+					call random_normal( normal_vel, 1, scramble_U0, std) 
+					vx(i) = normal_vel
+					call random_normal( normal_vel, 1, avg, std) 
+					vy(i) = normal_vel
+				END IF
+			ENDIF
+
+		END IF
+	END DO
+end if
 
 end subroutine periodic_xy
+!********************************************************
+subroutine scramble_pos_vel(rx, ry, vx, vy, flag)
+
+
+end subroutine scramble_pos_vel
+
 !********************************************************
 ! Grid check, gives which grids are overlapping with obstacles for further use in collision
 subroutine gridcheck(grid_check)
@@ -719,7 +805,7 @@ head1(:,:) = 0			! This kind of initialization works for gfortran (for negative 
 list1(:) = 0
 x_rand = ran()-0.5
 y_rand = ran()-0.5
-grid_up_down=merge(0,1,y_rand<0)
+grid_up_down = merge(0,1,y_rand<0)
 
 do i=1,np
 	if (xy(2)) then
