@@ -26,7 +26,7 @@ PROGRAM SRD
 				call bounce_wall(rx, ry, rx1, ry1, vx, vy)
 			END IF
 		end if
-		call periodic_xy( rx1, ry1)
+		call periodic_xy( rx1, ry1, vx, vy )
 		rx = rx1
 		ry = ry1
 

@@ -18,6 +18,10 @@ REAL(kind=dp) :: force(2), mu_tot, MC_strength = 0.25d0
 LOGICAL :: xy(2)=[.TRUE., .TRUE.], temperature = .TRUE., wall_thermal = .FALSE.
 LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
+! Scrambling Boundary Condition for periodic X-Y condition
+LOGICAL :: scrambling = .TRUE.
+INTEGER :: scramble_exponent = 3
+REAL(kind=dp) :: scramble_B = 5.0, scramble_U0 = 0.2d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
@@ -586,89 +590,67 @@ end subroutine pos_thermal_update
 !*************************************************
 ! implementing the periodic boundary condition
 ! Periodic boundary condition in x and y as per the condition given by xy
-subroutine periodic_xy( rx1, ry1)
+subroutine periodic_xy( rx1, ry1, vx, vy)
 implicit none
-REAL(kind = dp) :: rx1(:), ry1(:), dout, prob_disp, normal_velx(1), normal_vely(1)
+REAL(kind = dp) :: rx1(:), ry1(:), vx(:), vy(:), dout
 INTEGER :: i
-
+!$OMP PARALLEL
 if (xy(1)) then
-        !$OMP PARALLEL DO
-        DO i=1,np
-                IF (rx1(i) < 0.0) THEN
-                        rx1(i) = rx1(i) + Lx
- 			IF (MSD) par_periodic(i,1) = par_periodic(i,1) - 1.0d0
-                ELSE IF (rx1(i) > Lx*1.0) THEN
-                        rx1(i) = rx1(i) - Lx
- 			IF (MSD) par_periodic(i,1) = par_periodic(i,1) + 1.0d0
-                END IF
-        END DO
-        !$OMP END PARALLEL DO
+    !$OMP DO
+    DO i=1,np
+        IF (rx1(i) < 0.0) THEN
+            rx1(i) = rx1(i) + Lx
+            IF (MSD) par_periodic(i,1) = par_periodic(i,1) - 1.0d0
+        ELSE IF (rx1(i) > Lx*1.0) THEN
+            rx1(i) = rx1(i) - Lx
+            IF (MSD) par_periodic(i,1) = par_periodic(i,1) + 1.0d0
+        END IF
+    END DO
+    !$OMP END DO
 end if
 
 if (xy(2)) then
-	!$OMP PARALLEL DO
-        DO i=1,np
-                IF (ry1(i) < 0.0) THEN
-                        ry1(i) = ry1(i) + Ly
- 			IF (MSD) par_periodic(i,2) = par_periodic(i,2) - 1.0d0
-                ELSE IF (ry1(i) > Ly*1.0) THEN
-                        ry1(i) = ry1(i) - Ly
- 			IF (MSD) par_periodic(i,2) = par_periodic(i,2) + 1.0d0
-                END IF
-        END DO
-        !$OMP END PARALLEL DO
+    !$OMP DO
+    DO i=1,np
+        IF (ry1(i) < 0.0) THEN
+            ry1(i) = ry1(i) + Ly
+            IF (MSD) par_periodic(i,2) = par_periodic(i,2) - 1.0d0
+        ELSE IF (ry1(i) > Ly*1.0) THEN
+            ry1(i) = ry1(i) - Ly
+            IF (MSD) par_periodic(i,2) = par_periodic(i,2) + 1.0d0
+        END IF
+    END DO
+    !$OMP END DO
 end if
 
-if (scrambling == 'TRUE') then
+if ( scrambling ) then
+    !$OMP DO PRIVATE(dout)
 	DO i=1,np
-		IF ( rx(i) <= scramble_B ) THEN
-			dout = rx(i)
-			prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-			call random_normal( normal_velx, 1, scramble_U0, std) 
-			call random_normal( normal_vely, 1, avg, std) 
-			IF ( ry(i) >= scramble_B .AND. ry(i) <= Ly-scramble_B) THEN
+		IF ( rx1(i) <= scramble_B ) THEN
+			IF ( ry1(i) >= scramble_B .AND. ry1(i) <= Ly-scramble_B) THEN
 				!region 1 
-				IF ( prob_disp >= ran() )	
-					ry(i) = (Ly - 2.0*dout)*ran() + dout 		
-					vx(i) = normal_velx
-					vy(i) = normal_vely
-				END IF
-			ELSE IF ( ry(i) < scramble_B) THEN
+                dout = rx1(i)
+                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
+			ELSE IF ( ry1(i) < scramble_B) THEN
 				!region 8 
-				IF ( ry(i) >= dout ) THEN
-					IF ( prob_disp >= ran() ) THEN	
-						ry(i) = (Ly - 2.0*dout)*ran() + dout 		
-						vx(i) = normal_velx
-						vy(i) = normal_vely
-					ENDIF
+                dout = rx1(i)
+				IF ( ry1(i) >= dout ) THEN
+                    dout = rx1(i)
+                    call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
 				ELSE 
-					dout = ry(i)
-					prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-					IF ( prob_disp >= ran() ) THEN	
-						rx(i) = (Lx - 2.0*dout)*ran() + dout 		
-						vx(i) = normal_velx
-						vy(i) = normal_vely
-					ENDIF
+					dout = ry1(i)
+                    call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
 				END IF
 			ELSE
 			!region 2 
 
 			ENDIF
-		ELSE IF ( rx(i) >= Lx-scramble_B ) THEN
-			IF ( ry(i) >= scramble_B .AND. ry(i) <= Ly-scramble_B) THEN
+		ELSE IF ( rx1(i) >= Lx-scramble_B ) THEN
+			IF ( ry1(i) >= scramble_B .AND. ry1(i) <= Ly-scramble_B) THEN
 			!region 5
-				dout = Lx - rx(i)
-				prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-				
-				IF ( prob_disp >= ran() )	
-					ry(i) = (Ly - 2.0*dout)*ran() + dout 		
-					call random_normal( normal_vel, 1, scramble_U0, std) 
-					vx(i) = normal_vel
-					call random_normal( normal_vel, 1, avg, std) 
-					vy(i) = normal_vel
-				END IF
-			
-			ELSE IF ( ry(i) < scramble_B) THEN
+				dout = Lx - rx1(i)
+                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
+			ELSE IF ( ry1(i) < scramble_B) THEN
 			!region 6
 
 			ELSE
@@ -677,41 +659,40 @@ if (scrambling == 'TRUE') then
 			ENDIF
 
 		ELSE
-			IF ( ry(i) >= Ly-scramble_B) THEN
+			IF ( ry1(i) >= Ly-scramble_B) THEN
 			! region 3
-				dout = Ly - ry(i)
-				prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-				
-				IF ( prob_disp >= ran() )	
-					rx(i) = (Lx - 2.0*dout)*ran() + dout 		
-					call random_normal( normal_vel, 1, scramble_U0, std) 
-					vx(i) = normal_vel
-					call random_normal( normal_vel, 1, avg, std) 
-					vy(i) = normal_vel
-				END IF
-			ELSE IF ( ry(i) <= scramble_B) THEN
+				dout = Ly - ry1(i)
+                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+			ELSE IF ( ry1(i) <= scramble_B) THEN
 			! region 7
-				dout = ry(i)
-				prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-				
-				IF ( prob_disp >= ran() )	
-					rx(i) = (Lx - 2.0*dout)*ran() + dout 		
-					call random_normal( normal_vel, 1, scramble_U0, std) 
-					vx(i) = normal_vel
-					call random_normal( normal_vel, 1, avg, std) 
-					vy(i) = normal_vel
-				END IF
+				dout = ry1(i)
+                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
 			ENDIF
-
 		END IF
 	END DO
+    !$OMP END DO
 end if
-
+!$OMP END PARALLEL 
 end subroutine periodic_xy
 !********************************************************
-subroutine scramble_pos_vel(rx, ry, vx, vy, flag)
+subroutine scramble_pos_vel(rx, ry, vx, vy, dout, flag)
+implicit none
+INTEGER :: flag
+REAL(kind=dp) :: rx, ry, vx, vy, dout
+REAL(kind=dp) :: prob_disp, normal_vel(1)
 
-
+prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+IF ( prob_disp >= ran() ) THEN
+    IF ( flag == 1 ) THEN   ! horizontal displacement
+        rx = (Lx - 2.0*dout)*ran() + dout 
+    ELSE
+        ry = (Ly - 2.0*dout)*ran() + dout 
+    ENDIF
+    call random_normal( normal_vel, 1, scramble_U0, std) 
+    vx = normal_vel(1)
+    call random_normal( normal_vel, 1, avg, std) 
+    vy = normal_vel(1)
+END IF
 end subroutine scramble_pos_vel
 
 !********************************************************
