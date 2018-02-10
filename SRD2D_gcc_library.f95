@@ -797,12 +797,12 @@ list(i) = head(yindex,xindex)
 	implicit none
 	real(kind=dp), dimension(:) :: rx1, ry1
 	integer, dimension(:) :: list1
-	integer, dimension(:,:)    ::   head1
+	integer, dimension(0:Ly+1,Lx)    ::   head1
 	integer :: xindex, yindex, i 
 	real(kind = dp) :: x_rand, y_rand, xindex_temp, yindex_temp
 
-	!head1(0:Ly+1,:) = 0		! This works for ifort
-head1(:,:) = 0			! This kind of initialization works for gfortran (for negative indices, use indexing fully and not the default one)
+	head1(0:Ly+1,:) = 0		! This works for ifort
+!head1(:,:) = 0			! This kind of initialization works for gfortran (for negative indices, use indexing fully and not the default one)
 	list1(:) = 0
 	x_rand = ran()-0.5
 	y_rand = ran()-0.5
@@ -988,7 +988,7 @@ subroutine collision_rgs(vx, vy, head1, list1)
 	implicit none
 	real(kind=dp), dimension(:) :: vx, vy
 	integer, dimension(:) :: list1
-	integer, dimension(:,:)    ::   head1
+	integer, dimension(0:Ly+1,Lx)    ::   head1
 	integer, save :: mbs_iter=0
 integer :: i,j,count1, ipar, jpar, k, deficit, virtual(0:Ly+1,Lx)
 	real(kind=dp)	:: r, vx_temp, vy_temp, alpha1,  rel_vel_scale
