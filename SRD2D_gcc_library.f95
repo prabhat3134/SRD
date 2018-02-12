@@ -9,7 +9,7 @@ REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3e5, t_avg = 1.5e5, avg_interval=25, ensemble_num = 5e4
+INTEGER :: tmax = 3e5, t_avg = 1e5, avg_interval=20, ensemble_num = 1e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
