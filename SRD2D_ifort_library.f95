@@ -1,28 +1,39 @@
 module SRD_library
 use omp_lib
 implicit none
-INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
-REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0
+INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 30, m=1, a0=1
+REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 160, Lx = 1600, np = Ly*Lx*Gama, half_plane = 1
-REAL(kind=dp), PARAMETER ::  alpha = pi/2.0d0, kbT = 1.0d0, dt_c =0.1d0
+INTEGER, PARAMETER :: Ly = 100, Lx = 2000, np = Ly*Lx*Gama, half_plane = 1
+REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
-REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 5.0d-4
+REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d-4
 ! time values
-INTEGER :: tmax=52000, t_avg = 500000, avg_interval=1, ensemble_num = 100000
+INTEGER :: tmax = 200, t_avg = 0, avg_interval=1, ensemble_num = 1
 ! RGS, streaming
-INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down
+INTEGER :: random_grid_shift = 0, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
-INTEGER :: mb_scaling = 0, MC_scaling = 1, mbs_freq=50
-REAL(kind=dp)    :: force(2), mu_tot, MC_strength = 0.25d0
+INTEGER :: mb_scaling = 1, MC_scaling = 0, mbs_freq = 20
+REAL(kind=dp) :: force(2), mu_tot, MC_strength = 0.25d0
 LOGICAL :: xy(2)=[.TRUE., .FALSE.], temperature = .TRUE., wall_thermal = .FALSE.
+LOGICAL :: R_P = .TRUE., slip = .TRUE.
+REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! File naming 
-CHARACTER(len=100) :: file_name='Poiseuille_flow', data_path='./'     !file_name of size 20
+INTEGER :: wall_oscillatory = 0
+LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE.
+CHARACTER(len=100) :: file_name='RP', data_path='./' 
 ! cylinder parameters
-INTEGER :: obst = 1, grid_check(0:Ly+1,Lx)=0 
-REAL(kind=dp) :: rad = 10d0, xp = Lx/4.0d0, yp = Ly/2.0d0
+! obst_shape = 1 (for cylinder), 2 (for square)
+INTEGER :: obst = 0, obst_shape = 1
+REAL(kind=dp) :: rad = Ly*(aspect_ratio/2.0d0), xp = Lx/4.0d0, yp = Ly/2.0d0
+REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
+! Analysis of particle dynamics in equilibrium system, assuming periodic in both direction
+LOGICAL :: MSD = .FALSE., STRUCTURE_FUNC = .FALSE., trans_vel_SF = .FALSE.
+INTEGER,PARAMETER :: tau = 1000, total_t = 50000, t_start = 50000
+double complex,allocatable :: rho_k(:,:,:), S_k(:,:,:)
+real,allocatable :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_value(:), par_periodic(:,:)
 !! We should not define  very large static arrays typically of np. 
 !! Use dynamic allocation instead for such arrays and keep stack size unlimited.
 !! This precaution is important when using openmp and can be ignored without openmp.
@@ -66,7 +77,7 @@ END FUNCTION ran
 
 
 !***********************************************************************************
-! For eliminating particle within a box
+! For eliminating particles within a box
 subroutine box_eliminate(x_dummy, y_dummy)
 implicit none
 integer :: i
@@ -76,17 +87,22 @@ logical, allocatable :: l1(:), l2(:)
 ALLOCATE(l1(np), l2(np))
 
 i = 1
-! l1 = ry<b0+width .and. ry>b0 .and. rx<l0+width .and. rx>l0
-l1 = (x_dummy - xp)**2 + (y_dummy - yp)**2 < rad**2
+if (obst_shape == 1) then
+	l1 = (x_dummy - xp)**2 + (y_dummy - yp)**2 < rad**2
+else if (obst_shape == 2) then 
+	l1 = abs(x_dummy - obst_x) < obst_length/2.0d0 .and. abs(y_dummy - obst_y) < obst_breadth/2.0d0 
+endif
 l2 = .not. l1
 
 do while (i <= size(x_dummy))
 	if (l1(i)) then
 		x_dummy(i) = ran()*Lx
 		y_dummy(i) = ran()*Ly
-
-		if ((x_dummy(i) - xp)**2 + (y_dummy(i) - yp)**2 > rad**2) then 
+		
+		if ( (obst_shape == 1) .and. ((x_dummy(i) - xp)**2 + (y_dummy(i) - yp)**2 > rad**2)) then 
 			i = i+1
+		else if ( (obst_shape == 2) .and. (abs(x_dummy(i) - obst_x) > obst_length/2.0d0 .or. abs(y_dummy(i) - obst_y) > obst_breadth/2.0d0)) then
+			i= i+1
 		end if
 	else 
 		i = i+1
@@ -138,24 +154,156 @@ do while (i<=p_count)
 	end if	
 end do
 end subroutine random_weibull
+!******************************************************
+! MSD and Structure factor calculation
+subroutine equilibrium(rx, ry, vx, vy)
+implicit none
+integer :: i,j,k, kx, ky
+real(kind=dp) :: rx(:), ry(:), vx(:), vy(:), k1, k2
+integer, save :: equi_index=0
+
+equi_index = equi_index + 1
+IF (equi_index .gt. total_t) return
+IF (STRUCTURE_FUNC) THEN
+	do kx = 0,(Lx/2)-1
+	do ky = 0,(Ly/2)-1
+		k1 = kx*2*pi/(Lx*1.0d0)
+		k2 = ky*2*pi/(Ly*1.0d0)
+		par_temp = k1*rx + k2*ry 
+                IF(trans_vel_SF) THEN
+                        rho_k(kx, ky, equi_index) = cmplx(sum( vy*cos(par_temp)),-sum( vy*sin(par_temp)))
+                ELSE
+                        rho_k(kx, ky, equi_index) = cmplx(sum(cos(par_temp)),-sum(sin(par_temp)))
+                END IF
+	end do
+	end do
+END IF
+IF (MSD) THEN
+	MSD_xy(:,1,equi_index) = rx + par_periodic(:,1)*Lx
+	MSD_xy(:,2,equi_index) = ry + par_periodic(:,2)*Ly
+END IF
+end subroutine equilibrium
+!*******************************************************
+! Actual calculation of MSD and Structure factor
+subroutine equi_cal()
+implicit none
+integer :: i,j,k
+IF (STRUCTURE_FUNC) THEN
+	!$OMP PARALLEL DO PRIVATE(i,j)
+	DO i = 0,tau
+		S_k(0:(Lx/2)-1, 0:(Ly/2)-1, i) = cmplx(0.0d0, 0.0d0)
+		DO j = 1, total_t-i
+			S_k(:,:,i) = S_k(:,:,i) + CONJG(rho_k(:,:,j+i))*rho_k(:,:,j)
+		END DO
+		S_k(:,:,i) = sum(S_k,3)/((total_t-i)*1.0d0)
+		S_factor(:,:,i) = ABS( S_k(:,:,i) )/(np*1.0d0)
+	END DO
+	!$OMP END PARALLEL DO
+	open(unit=20,file='DSF.dat',action='write',status = 'replace')
+	DO j=0,tau
+		write(20,"(3F15.5)") S_factor(1,0,j),  S_factor(0,1,j), S_factor(1,1,j)
+	END DO
+	close(20)
+END IF
+IF (MSD) THEN
+	!$OMP PARALLEL DO PRIVATE(i,j,par_temp)
+	DO i = 1,tau
+		par_temp = 0.0d0
+		DO j = 1,total_t-i
+			par_temp = par_temp + (MSD_xy(:,1,j+i)-MSD_xy(:,1,j))**2 + (MSD_xy(:,2,j+i)-MSD_xy(:,2,j))**2
+		END DO
+		MSD_value(i) = SUM(par_temp)/((total_t-i)*np*1.0d0)
+	END DO
+	!$OMP END PARALLEL DO
+	open(unit=20,file='MSD.dat',action='write',status = 'replace')
+	DO j=1,tau
+		write(20,"(I0,F10.5)") j, MSD_value(j) 
+	END DO
+	close(20)
+END IF
+
+end subroutine equi_cal
+
+!******************************************
+! Initialize the domain for a Riemann problem
+
+subroutine Riemann_initial ( rx, ry ,vx, vy )
+implicit none
+REAL(kind=dp),dimension(:) :: rx, ry, vx, vy
+REAL(kind=dp) :: xc, xr, temp
+INTEGER :: i, k1, k2
+
+xc = Lx/2.0d0
+xr = xc/2.0d0
+temp = sqrt( RP_ratio )
+! for rho_ratio
+k1 = CEILING( 0.5*np/(RP_ratio + 1.0d0))
+k2 = k1 + CEILING( RP_ratio*np/(RP_ratio + 1))
+
+! for uniform rho
+!k1 = np/4 
+!k2 = k1 + np/2 
+
+DO i = 1,np
+        rx(i) = ran()
+END DO
+rx(1:k1) = rx(1:k1) * xr
+rx(k1+1: k2) = rx( k1+1: k2)* 2*xr + xr 
+rx( k2+1:np) = rx(k2+1:np)*xr + xc + xr
+
+!call random_normal(vx(1:k1), k1, avg, std )
+!call random_normal(vx(k1+1: k2),(k2-k1) ,avg, temp )
+!call random_normal(vx(k2+1: np),(np-k2) ,avg, std )
+
+!call random_normal(vy(1:k1), k1, avg, std )
+!call random_normal(vy(k1+1: k2),(k2-k1) ,avg, temp )
+!call random_normal(vy(k2+1: np),(np-k2) ,avg, std )
+
+end subroutine Riemann_initial
+
+!******************************************
+! write velocity data for the shock front for a Riemann problem
+subroutine RP_shock_front( rx, ry, vx, vy, head, list, iter )
+implicit none
+INTEGER :: head(:,:), list(:), iter
+INTEGER :: i,j,ipar, t1, t2
+REAL(kind=dp), DIMENSION(:) :: rx, ry, vx, vy
+REAL(kind=dp) :: U_shock = 1.70d0
+CHARACTER(len=100) :: fname
+
+t1 = 1500+ int(U_shock*iter) - 25
+t2 = 1500+ int(U_shock*iter) + 15
+write (fname, "(A12,I0)") "RP_vel_stat_",iter                             
+open (unit=20, file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+DO j=t1,t2
+DO i=1,Ly
+        ipar = head(i,j)
+        DO WHILE( ipar/=0)
+                write(20, '(4F10.5)') rx(ipar), ry(ipar), vx(ipar), vy(ipar)
+                ipar = list(ipar)
+        END DO
+END DO
+END DO
+close(20)
+end subroutine RP_shock_front
+
 
 !******************************************
 ! Intialize the domain
 subroutine initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list)
 implicit none
 INTEGER ::  i, j, ipar, p_count, head(:,:), list(:)
-REAL(kind=dp) ::  block(3), vp_max 
+REAL(kind=dp) ::  vp_max, vel_scale, temp
 REAL(kind = dp) :: x_dummy(:), y_dummy(:), mu_kin, mu_col, RE
-REAL(kind=dp) :: rx(:), ry(:), vx(:), vy(:), vxcom(Ly,Lx),vycom(Ly,Lx)
+REAL(kind=dp) :: rx(:), ry(:), vx(:), vy(:), vxcom(Ly,Lx),vycom(Ly,Lx), Ek(Ly,Lx)
 
 mu_kin = (gama*kbT*dt_c)*(gama/((gama - 1.0 + exp(-1.0*gama))*(1.0-cos(2.0*alpha)))- 0.5)
 mu_col = ((1.0-cos(alpha))/(12.0*dt_c))*(gama - 1.0 + exp(-1.0*gama))
 mu_tot = mu_kin + mu_col
 vp_max = (Gama * Ly**2.0 *f_b)/(8.0*mu_tot)
-RE = Gama*vp_max*Ly/mu_tot
+RE = Gama*vp_max*merge(2*rad, Ly*1.0d0, obst ==1 ) /mu_tot
 !write(*,*) vp_max, mu_tot, RE
 !stop
-block = [xp,yp,rad]
 do i=1, np
 	x_dummy(i) = ran()*Lx
 	y_dummy(i) = ran()*Ly
@@ -164,17 +312,21 @@ IF (obst == 1) THEN
 	ALLOCATE(obst_par(np))
 	ALLOCATE(theta_intersect(np))
 	call box_eliminate(x_dummy, y_dummy)
-	call gridcheck(grid_check, block)
+	call gridcheck(grid_check)
 END IF
+
 rx = x_dummy
 ry = y_dummy
 
 call random_normal(vx,np,avg,std)
 call random_normal(vy,np,avg,std)
 
+IF (R_P) call Riemann_initial( rx, ry, vx, vy )
+
 call partition(rx,ry,head,list)
 vxcom = 0.0d0
 vycom = 0.0d0
+Ek = 0.0d0
 DO j=1,Lx
 DO i=1,Ly
 	p_count = 0
@@ -189,15 +341,33 @@ DO i=1,Ly
 		vxcom(i,j) = vxcom(i,j)/p_count
 		vycom(i,j) = vycom(i,j)/p_count
 	end if	
-
 	ipar = head(i,j)
 	do while (ipar/=0)
 		vx(ipar) = vx(ipar) - vxcom(i,j) 
 		vy(ipar) = vy(ipar) - vycom(i,j)
+		Ek(i,j)  = Ek(i,j) + 0.5*( vx(ipar)**2 + vy(ipar)**2 )
 		ipar = list(ipar)
 	end do
+        IF (Init_unity_temp) THEN
+                if (p_count .gt. 1) then
+                        temp = Ek(i,j)/( (p_count - 1)*1.0d0)
+                        vel_scale = sqrt(kbT/temp)
+                        ipar = head(i,j)
+                        do while (ipar/=0)
+                                vx(ipar) = vx(ipar) * vel_scale
+                                vy(ipar) = vy(ipar) * vel_scale
+                                ipar = list(ipar)
+                        end do
+                end if
+        END IF
 END DO
 END DO
+
+IF (MSD) allocate( MSD_xy(np,2,0:total_t), par_periodic(np,2), par_temp(np), MSD_value(tau))
+IF (STRUCTURE_FUNC) THEN
+	allocate(rho_k(0:(Lx/2)-1,0:(Ly/2)-1, total_t), S_k(0:(Lx/2)-1,0:(Ly/2)-1, 0:tau))
+	allocate(S_factor(0:(Lx/2)-1,0:(Ly/2)-1, 0:tau), par_temp(np))
+END IF
 end subroutine initialize
 
 !*********************************************
@@ -232,7 +402,13 @@ ELSE				!EULER algorithm
         END DO
         !$OMP END PARALLEL DO
 END IF
-IF (obst==1) obst_par  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
+IF (obst == 1) THEN
+	IF (obst_shape==1) THEN
+		obst_par  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
+	ELSE
+		obst_par = (abs(rx1 - obst_x) < obst_length/2.0d0 .and. abs(ry1 - obst_y) < obst_breadth/2.0d0)
+	END IF
+END IF
 
 end subroutine streaming
 !*************************************************
@@ -298,6 +474,7 @@ end do
 call pos_thermal_update(rx,ry,rx1,ry1,vx,vy)
 
 end subroutine par_in_cyl
+
 !*********************************************
 ! based on the angle theta_intersect of the particles inside the cylinder, place them back to the right position
 ! Velocity in radial coordinate is [radial, tangential] and the Euler algorithm is implemented by default
@@ -420,8 +597,10 @@ if (xy(1)) then
         DO i=1,np
                 IF (rx1(i) < 0.0) THEN
                         rx1(i) = rx1(i) + Lx
+ 			IF (MSD) par_periodic(i,1) = par_periodic(i,1) - 1.0d0
                 ELSE IF (rx1(i) > Lx*1.0) THEN
                         rx1(i) = rx1(i) - Lx
+ 			IF (MSD) par_periodic(i,1) = par_periodic(i,1) + 1.0d0
                 END IF
         END DO
         !$OMP END PARALLEL DO
@@ -432,8 +611,10 @@ if (xy(2)) then
         DO i=1,np
                 IF (ry1(i) < 0.0) THEN
                         ry1(i) = ry1(i) + Ly
+ 			IF (MSD) par_periodic(i,2) = par_periodic(i,2) - 1.0d0
                 ELSE IF (ry1(i) > Ly*1.0) THEN
                         ry1(i) = ry1(i) - Ly
+ 			IF (MSD) par_periodic(i,2) = par_periodic(i,2) + 1.0d0
                 END IF
         END DO
         !$OMP END PARALLEL DO
@@ -442,16 +623,16 @@ end if
 end subroutine periodic_xy
 !********************************************************
 ! Grid check, gives which grids are overlapping with obstacles for further use in collision
-subroutine gridcheck(grid_check, block)
+subroutine gridcheck(grid_check)
 implicit none
 INTEGER :: grid_check(:,:), i, j, x, y
-REAL(kind=dp) :: block(:), xc, yc, l, b, R, rtmp
+REAL(kind=dp) ::  xc, yc, l, b, R, rtmp
 
 grid_check(0:Ly+1,:) = 0
-if (SIZE(block)==3) then	! for cylinder [center x, center y, radius]
-	xc = block(1)
-	yc = block(2)
-	R  = block(3)
+if (obst_shape==1) then	! for cylinder [center x, center y, radius]
+	xc = xp
+	yc = yp
+	R  = rad
 	DO i = CEILING(yc-R)+1,CEILING(yc+R)+1	! i is in y direction
 	DO j = CEILING(xc-R),CEILING(xc+R)	! j is in x direction
 		rtmp = SQRT((j-xc)**2 + (i-1-yc)**2)
@@ -477,11 +658,15 @@ if (SIZE(block)==3) then	! for cylinder [center x, center y, radius]
 	END DO
 	END DO
 else
-	xc = block(1)
-	yc = block(2)
-	l  = block(3)
-	b  = block(4)
-	! for including square or rectangular block [base x, base y, length, breadth]
+	xc = obst_x 
+	yc = obst_y
+	l  = obst_length
+	b  = obst_breadth
+	DO i = CEILING(yc- b/2.0d0)+1,CEILING(yc+b/2.0d0)	! i is in y direction
+	DO j = CEILING(xc- l/2.0d0)+1,CEILING(xc+ l/2.0d0)	! j is in x direction
+		grid_check(i,j) = 1
+	END DO
+	END DO
 end if
 end subroutine gridcheck
 
@@ -774,7 +959,7 @@ do j=1,Lx
 		! Rotation of velocity
 		ipar = head1(i,j)
 		do while (ipar/=0) 				
-			vx_temp  = vx(ipar)-vxcom(i,j) 
+			Vx_temp  = vx(ipar)-vxcom(i,j) 
 			vy_temp  = vy(ipar)-vycom(i,j) 			
 			vx(ipar) = vxcom(i,j) + rel_vel_scale*(1.0*cos(alpha1)*vx_temp + sin(alpha1)*vy_temp)
 			vy(ipar) = vycom(i,j) + rel_vel_scale*(-1.0*sin(alpha1)*vx_temp + cos(alpha1)*vy_temp)
@@ -860,22 +1045,21 @@ implicit none
 INTEGER,PARAMETER :: grid_points = half_plane*Ly + 1
 real(kind=dp), dimension(:) :: vx, vy, rx, ry
 integer   :: head(:,:), list(:)
-integer, save ::  t_count = 0, file_count = 0
+integer, save ::  t_count = 0, file_count = 0, steady_count=0
 integer :: i, j, k, ipar, p_count, out_unit, density(Ly,Lx),den_t(4)
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx),  weight, plane_pos, vxc, vyc
 real(kind=dp), save :: vx1(Ly,Lx)=0.0d0, vy1(Ly,Lx)=0.0d0, forcing(2) = 0.0d0, tx(Ly,Lx) = 0.0d0, dens(Ly,Lx) = 0.0d0,&
-vx_avg(grid_points)=0.0d0, vy_avg(grid_points)=0.0d0,  tot_part_count(grid_points)=0.0d0! every grid points considered from 0 to Ly
-logical :: Lexist, image
-CHARACTER(LEN=200)  :: fname
+vx_avg(grid_points)=0.0d0, vy_avg(grid_points)=0.0d0,  tot_part_count(grid_points)=0.0d0, converge(Ly,Lx,2)=0.0d0 ! every grid points considered from 0 to Ly
+logical :: Lexist
+CHARACTER(LEN=200)  :: fname, fmt_spec
 integer,save :: interval = 0, den_count(4) = 0, png_write_count=0
 real(kind=dp),save :: den_interval(Ly,Lx,4) = 0.0d0
 
-image = .TRUE.
 vxcom   = 0.0
 vycom   = 0.0
 out_unit = 20
 temp_com = 0.0
-density   = 0.0
+density   = 0
 den_t = (/1,10,25,50/)
 t_count = t_count+1
 !$OMP PARALLEL DO PRIVATE(i,j,p_count,vxc,vyc,ipar,plane_pos,weight,k)
@@ -921,6 +1105,27 @@ do i = 1,Ly
 end do
 end do 
 !$OMP END PARALLEL DO
+
+
+IF (dynamic_density) THEN
+	den_count(1) = den_count(1) + 1
+	write (fname, "(A14,I0)") "Dyn_density_1_",den_count(1)                             
+	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+	write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
+	DO j=1,Ly
+		write (out_unit, fmt = fmt_spec) density(j,:)*1.0d0 
+	END DO
+	close(out_unit)
+        IF (temperature) THEN
+                write (fname, "(A11,I0)") "Dyn_temp_1_",den_count(1)                             
+                open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+                write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
+                DO j=1,Ly
+                        write (out_unit, fmt = fmt_spec) temp_com(j,:)*1.0d0 
+                END DO
+                close(out_unit)
+        END IF
+END IF
 IF (image)THEN
 	DO i=1,4
 		den_interval(:,:,i) = den_interval(:,:,i) + density
@@ -931,8 +1136,9 @@ IF (image)THEN
 			den_count(i) = den_count(i) + 1
 			write (fname, "(A10,I0,A1,I0)") "shock_rho_",den_t(i),"_",den_count(i)                             
 			open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+			 write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
 			DO j=1,Ly
-				write (out_unit,"(<Lx/2>F10.5)") den_interval(j,1:Lx/2,i)/(den_t(i)*1.0d0)
+				write (out_unit, fmt = fmt_spec ) den_interval(j,1:Lx,i)/(den_t(i)*1.0d0)
 			END DO
 			close(out_unit)
 			write (fname, "(A10,I0,A1,I0)") "shock_col_",den_t(i),"_",den_count(i)                             
@@ -959,6 +1165,22 @@ dens = dens + density
 forcing = forcing + force
 if (temperature) tx = tx + temp_com
 
+!IF (t_count == 1000) THEN
+!	vxcom = vx1/dens
+!	vycom = vy1/dens
+!	IF (obst == 1) THEN
+!		DO j=1,Lx
+!		DO i=1,Ly
+!			IF (isnan(vxcom(i,j))) vxcom(i,j) = 0.0d0
+!			IF (isnan(vycom(i,j))) vycom(i,j) = 0.0d0
+!		END DO
+!		END DO
+!	END IF
+!	write(*,*) sum( abs( vxcom - converge(:,:,1) ) + abs( vycom - converge(:,:,2) ) )
+!	converge(:,:,1) = vxcom
+!	converge(:,:,2) = vycom
+!END IF
+
 if (modulo(t_count,ensemble_num)==0) then
 	file_count = file_count+1
     	
@@ -968,11 +1190,17 @@ if (modulo(t_count,ensemble_num)==0) then
 	
 	vx1 = vx1/dens
 	vy1 = vy1/dens
+        DO j=1,Lx
+        DO i=1,Ly
+                IF (isnan(vx1(i,j))) vx1(i,j) = 0.0d0
+                IF (isnan(vy1(i,j))) vy1(i,j) = 0.0d0
+        END DO
+        END DO
 	forcing = forcing/t_count
 	tx = tx/t_count
 	dens = dens/t_count
-
-	write (fname, "(A<LEN(trim(file_name))>,A10)") trim(file_name),"_drag_lift"   !this format of writing is valid only in ifort, not gfortran                  
+	write (fmt_spec,'(a,I0,a)') '(A', len_trim(file_name), ', A10)'
+	write (fname, fmt = fmt_spec) trim(file_name),"_drag_lift"  
 	inquire(file = trim(data_path)//trim(fname)//'.dat', exist = Lexist)  	
 	if (Lexist) then	
 		open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',status="old",action="write",position="append")
@@ -981,35 +1209,41 @@ if (modulo(t_count,ensemble_num)==0) then
 	end if	
     	write (out_unit,*) forcing		  		
     	close(out_unit)
-
-	write (fname, "(A<LEN(trim(file_name))>,A7,I0)") trim(file_name),"_vx_vy_",file_count                             
+	
+	write (fmt_spec,'(a,I0,a)') '(A', len_trim(file_name), ', A7, I0)'
+	write (fname, fmt = fmt_spec ) trim(file_name),"_vx_vy_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-	IF (obst == 0) THEN
+	IF (obst == 0 .and. .NOT.(R_P)) THEN
 		DO i=1,half_plane*Ly+1
 			write(out_unit,*) (i*1.0-1)/(half_plane*1.0),vx_avg(i),vy_avg(i)
 		END DO
 	ELSE
+		write (fmt_spec,'(a,I0,a)') '( ',Lx,'F10.5)'
 		do i = 1,Ly
-			write (out_unit,"(<Lx>F10.5)") vx1(i,:)
+			write (out_unit, fmt = fmt_spec ) vx1(i,:)
 		end do
 		do i = 1,Ly
-			write (out_unit,"(<Lx>F10.5)") vy1(i,:)
+			write (out_unit,fmt = fmt_spec ) vy1(i,:)
 		end do
 	END IF
 	close(out_unit)	
 	
-	write (fname, "(A<LEN(trim(file_name))>,A5,I0)") trim(file_name),"_rho_",file_count                             
+	write (fmt_spec,'(a,I0,a)') '(A', len_trim(file_name), ', A5, I0)'
+	write (fname, fmt = fmt_spec ) trim(file_name),"_rho_",file_count                             
 	open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+	write (fmt_spec,'(a,I0,a)') '( ',Lx,'F10.5)'
 	do i = 1,Ly
-		write (out_unit,"(<Lx>F10.5)") dens(i,:)
+		write (out_unit, fmt = fmt_spec ) dens(i,:)
 	end do
 	close(out_unit)	
 
 	if (temperature) then
-		write (fname, "(A<LEN(trim(file_name))>,A6,I0)") trim(file_name),"_temp_",file_count                             
+		write (fmt_spec,'(a,I0,a)') '(A', len_trim(file_name), ', A6, I0)'
+		write (fname, fmt = fmt_spec ) trim(file_name),"_temp_",file_count                             
 		open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+		write (fmt_spec,'(a,I0,a)') '( ',Lx,'F10.5)'
 		do i = 1,Ly
-			write (out_unit,"(<Lx>F10.5)") tx(i,:)
+			write (out_unit,fmt = fmt_spec ) tx(i,:)
 		end do
 		close(out_unit)
 	end if
@@ -1030,47 +1264,66 @@ end subroutine v_avg
 subroutine bounce_wall(rx, ry, rx1, ry1, vx, vy)
 implicit none
 real(kind=dp), dimension(:)  :: rx, ry, rx1, ry1, vx, vy
-real(kind=dp) :: t_app, t_dec
-integer :: i
-!logical :: Wall(np)
+real(kind=dp) :: t_app, t_dec, vy_rel
+real(kind=dp),save :: lower_wall_i=0.0d0, lower_wall_f=0.0d0, v_low_wall=0.0d0, f_wall=5.0d0, v_wall=0.05d0
+integer :: i, wall_freq, iter=0
 
-!Wall = (ry1 > (Ly*1.0) .or. ry1 < 0.0)  			  		
+iter = iter + 1
+wall_freq = f_wall/( v_wall * dt_c )	! half wall frequency 
+if ( wall_oscillatory == 1 .and. iter .gt. 10000 ) then
+        lower_wall_i = lower_wall_f
+        lower_wall_f = lower_wall_i + v_wall*dt_c
+        v_low_wall  = v_wall
+        if (mod(iter, wall_freq) == 0 ) v_wall = -1.0d0*v_wall
+        grid_check( 0:int(f_wall), : ) = 0
+        grid_check( 0:ceiling(lower_wall_f), : ) = 1	! for collision
+else
+        lower_wall_f = 0.0d0
+        lower_wall_i = 0.0d0
+        v_low_wall = 0.0d0
+        grid_check( 0,: ) = 1
+        grid_check( Ly+1 ,: ) = 1
+end if
 
 !$OMP PARALLEL IF(np>100000)
-!$OMP DO PRIVATE(t_app,t_dec) SCHEDULE(guided)
+!$OMP DO PRIVATE(t_app,t_dec,vy_rel) SCHEDULE(guided)
 do i = 1,np
-	if (ry1(i) > (Ly*1.0) .or. ry1(i) < 0.0)   then			
-		if ((ry1(i)-ry(i))<0.0) then			
-			t_app  = ry(i)/abs(vy(i))
-			t_dec  = dt_c - t_app
-			vy(i)  = -vy(i)
-			ry1(i) = 0.0 + vy(i)*t_dec	
-		else 			
-			t_app  = (Ly-ry(i))/abs(vy(i))
-			t_dec  = dt_c - t_app
-			vy(i)  = -vy(i)
-			ry1(i) = Ly + vy(i)*t_dec	
-		end if		
-		vx(i) = vx(i)-f_b*dt_c
-		IF (verlet == 2) THEN
-			vx(i)  = vx(i) + f_b*(dt_c+t_app)/2
-			rx1(i) = rx(i) + vx(i)*t_app
-			vx(i)  = -vx(i) 
-			vx(i)  = vx(i) + f_b*t_dec/2
-			rx1(i) = rx1(i) + vx(i)*t_dec
-		ELSE IF (verlet == 1) THEN
-			rx1(i) = rx(i) + vx(i)*t_app + (f_b*t_app**2)/2
-			vx(i)  = vx(i) + f_b*t_app
-			vx(i)  = -vx(i)
-			rx1(i) = rx1(i) + vx(i)*t_dec + (f_b*t_dec**2)/2 
-			vx(i)  = vx(i) + f_b*t_dec
-		ELSE
-			rx1(i) = rx(i) + vx(i)*t_app 
-			vx(i)  = -vx(i)
-			rx1(i) = rx1(i) + vx(i)*t_dec 
-			vx(i)  = vx(i) + f_b*dt_c
-		END IF
-	end if	
+        if (ry1(i) > (Ly*1.0) .or. ry1(i) < lower_wall_f )   then
+                if ( ry1(i) < lower_wall_f ) then
+                        vy_rel = vy(i) - v_low_wall
+                        if( vy_rel < 0 ) then
+                                t_app  = (ry(i) - lower_wall_i) /abs(vy_rel)
+                                t_dec  = dt_c - t_app
+                                vy(i)  = v_low_wall - vy_rel
+if (t_app < 0.0d0) write(*,*) iter, 'negative time-bounce', v_low_wall, vy(i),t_app, vy_rel, ry(i), lower_wall_i
+                                ry1(i) = lower_wall_i + t_app*v_low_wall +  vy(i)*t_dec	
+                        end if
+                else 			
+                        t_app  = (Ly-ry(i))/abs(vy(i))
+                        t_dec  = dt_c - t_app
+                        vy(i)  = -vy(i)
+                        ry1(i) = Ly + vy(i)*t_dec
+                end if		
+                vx(i) = vx(i)-f_b*dt_c
+                IF (verlet == 2) THEN
+                        vx(i)  = vx(i) + f_b*(dt_c+t_app)/2
+                        rx1(i) = rx(i) + vx(i)*t_app
+                        vx(i)  = merge( vx(i), -vx(i), slip) 
+                        vx(i)  = vx(i) + f_b*t_dec/2
+                        rx1(i) = rx1(i) + vx(i)*t_dec
+                ELSE IF (verlet == 1) THEN
+                        rx1(i) = rx(i) + vx(i)*t_app + (f_b*t_app**2)/2
+                        vx(i)  = vx(i) + f_b*t_app
+                        vx(i)  = merge( vx(i), -vx(i), slip) 
+                        rx1(i) = rx1(i) + vx(i)*t_dec + (f_b*t_dec**2)/2 
+                        vx(i)  = vx(i) + f_b*t_dec
+                ELSE
+                        rx1(i) = rx(i) + vx(i)*t_app 
+                        vx(i)  = merge( vx(i), -vx(i), slip) 
+                        rx1(i) = rx1(i) + vx(i)*t_dec 
+                        vx(i)  = vx(i) + f_b*dt_c
+                END IF
+        end if	
 end do
 !$OMP END DO
 !$OMP END PARALLEL
@@ -1089,9 +1342,7 @@ Re = (Gama * Vp * Ly )/mu_tot
 OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
 
 write(10,*)"Parameters used in the current simulation to which the data belongs"
-write(10,*) "Particle density: ",Gama
-write(10,*) "alpha rotation: ",alpha
-write(10,*) "kbT: ",kbT
+write(10,*) "Particle density: ",Gama, ", alpha rotation: ",alpha, ", kbT: ",kbT
 write(10,*) "Domain size Ly,Lx:",[Ly,Lx]
 write(10,*)
 write(10,*) "Time step used: ", dt_c
@@ -1119,6 +1370,8 @@ write(10,*) "Maximum Poiseuille velocity (analytical): ", Vp
 write(10,*) "Maximum Reynolds number: ", Re
 write(10,*)
 IF (obst == 1) write(10,*) "Cylinder centre position: ",xp,yp," and its radius: ",rad
+IF (wall_oscillatory == 1) write(10,*) 'Oscillating lower wall'
+IF (R_P) write(10,*) "Reimann Problem with density ratio: ",RP_ratio
 close(10)
 
 END SUBROUTINE param_file
