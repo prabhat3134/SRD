@@ -9,7 +9,7 @@ REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3e5, t_avg = 1e5, avg_interval=20, ensemble_num = 1e3
+INTEGER :: tmax = 2e5, t_avg = 5e4, avg_interval=10, ensemble_num = 2.5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -20,15 +20,15 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 5.0, scramble_U0 = 0.4d0,  scramble_exponent = 3.0d0
+REAL(kind=dp) :: scramble_B = 5.0, scramble_U0 = 0.2d0,  scramble_exponent = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
-CHARACTER(len=100) :: file_name='scramble', data_path='./' 
+CHARACTER(len=100) :: file_name='Cylinder_scramble', data_path='./' 
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
-INTEGER :: obst = 0, obst_shape = 1
-REAL(kind=dp) :: rad = Ly*(aspect_ratio/2.0d0), xp = Lx/4.0d0, yp = Ly/2.0d0
+INTEGER :: obst = 1, obst_shape = 1
+REAL(kind=dp) :: rad = Ly*(aspect_ratio/2.0d0), xp = Lx/2.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
@@ -410,7 +410,7 @@ ELSE				!EULER algorithm
         !$OMP END PARALLEL DO
 END IF
 IF (obst == 1) THEN
-	IF (obst_shape==1) THEN
+	IF (obst_shape == 1) THEN
 		obst_par  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
 	ELSE
 		obst_par = (abs(rx1 - obst_x) < obst_length/2.0d0 .and. abs(ry1 - obst_y) < obst_breadth/2.0d0)
