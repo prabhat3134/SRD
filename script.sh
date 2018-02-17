@@ -9,6 +9,6 @@ elif [ $# -gt 0 ]; then
 	gfortran -ffree-line-length-none -fopenmp -c SRD2D_gcc_library.f95 -fcheck=bounds
 	gfortran -ffree-line-length-none -fopenmp -o SRD2D_par SRD2D_main.f95 SRD2D_gcc_library.o -fcheck=bounds
 else
-	gfortran -ffree-line-length-none -c SRD2D_gcc_library.f95 -fcheck=bounds
-	gfortran -ffree-line-length-none -o SRD2D_serial SRD2D_main.f95 SRD2D_gcc_library.o -fcheck=bounds
+	gfortran -ffree-line-length-none -cpp -c SRD2D_gcc_library.f95 -fcheck=bounds
+	gfortran -ffree-line-length-none -cpp -o SRD2D_serial SRD2D_main.f95 SRD2D_gcc_library.o -fcheck=bounds
 fi
