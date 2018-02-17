@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 200, Lx = 200, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 400, Lx = 600, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 2e5, t_avg = 5e4, avg_interval=10, ensemble_num = 2.5e3
+INTEGER :: tmax = 3e5, t_avg = 2.5e4, avg_interval=10, ensemble_num = 2.5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -20,7 +20,7 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 5.0, scramble_U0 = 0.2d0,  scramble_exponent = 3.0d0
+REAL(kind=dp) :: scramble_B = 10.0, scramble_U0 = 0.6d0,  scramble_exponent = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
@@ -28,7 +28,8 @@ CHARACTER(len=100) :: file_name='Cylinder_scramble', data_path='./'
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 1, obst_shape = 1
-REAL(kind=dp) :: rad = Ly*(aspect_ratio/2.0d0), xp = Lx/2.0d0, yp = Ly/2.0d0
+LOGICAL :: obst_thermal = .FALSE.
+REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
@@ -36,7 +37,7 @@ LOGICAL, ALLOCATABLE ::  obst_par(:)
 LOGICAL :: MSD = .FALSE., STRUCTURE_FUNC = .FALSE., trans_vel_SF = .FALSE.
 INTEGER,PARAMETER :: tau = 1000, total_t = 50000, t_start = 50000
 double complex,allocatable :: rho_k(:,:,:), S_k(:,:,:)
-real,allocatable :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_value(:), par_periodic(:,:)
+REAL(kind=dp), ALLOCATABLE :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_value(:), par_periodic(:,:)
 !! We should not define  very large static arrays typically of np. 
 !! Use dynamic allocation instead for such arrays and keep stack size unlimited.
 !! This precaution is important when using openmp and can be ignored without openmp.
@@ -435,7 +436,7 @@ theta_intersect = 0.0d0
 ! Solving the intersection angle for every particle inside the cylinder (using the list obst_par(i)) 
 
 !$OMP PARALLEL IF(np>100000)
-!$OMP DO PRIVATE(i, dx, dy, dr, de, disc, sol1, sol2, sol, exp1, exp2) SCHEDULE(guided)
+!$OMP DO PRIVATE( dx, dy, dr, de, disc, sol1, sol2, sol, exp1, exp2, th ) SCHEDULE(guided)
 do i=1,np
 	if(obst_par(i)) then
 ! Calculating the slope, of the line joining the initial and final particle positions. 
@@ -477,8 +478,11 @@ end do
 !$OMP END DO
 !$OMP END PARALLEL
 
-
-call pos_thermal_update(rx,ry,rx1,ry1,vx,vy)
+IF ( obst_thermal ) THEN
+    call pos_thermal_update(rx,ry,rx1,ry1,vx,vy)
+ELSE
+    call pos_bounce_update(rx,ry,rx1,ry1,vx,vy)
+END IF
 
 end subroutine par_in_cyl
 
@@ -509,7 +513,7 @@ DO i=1,np
 		
 		! velocity of approach at the surface of the cylinder
 		vx(i) = vx(i) + f_b*t_app
-		
+
 		! coordinate transformation for reversal in dirn of normal and tangential velocity and propogation
 		vxy = [vx(i), vy(i)]
 		vr  = MATMUL(jacobian,vxy)
@@ -596,9 +600,11 @@ end subroutine pos_thermal_update
 ! Periodic boundary condition in x and y as per the condition given by xy
 subroutine periodic_xy( rx1, ry1, vx, vy)
 implicit none
-REAL(kind = dp) :: rx1(:), ry1(:), vx(:), vy(:), dout
+REAL(kind = dp) :: rx1(:), ry1(:), vx(:), vy(:)
+REAL(kind = dp) :: r1, r2, v1, v2, dout
 INTEGER :: i
-!$OMP PARALLEL PRIVATE(dout)
+
+!$OMP PARALLEL 
 if (xy(1)) then
     !$OMP DO
     DO i=1,np
@@ -626,93 +632,100 @@ if (xy(2)) then
     END DO
     !$OMP END DO
 end if
-
 IF ( scrambling ) THEN
-    !$OMP DO 
+!!!    !$OMP DO PRIVATE( i, r1, r2, v1, v2, dout )
 	DO i=1,np
-		IF ( rx1(i) <= scramble_B ) THEN
-			IF ( ry1(i) >= scramble_B .AND. ry1(i) <= Ly-scramble_B) THEN
+        r1 = rx1(i)
+        r2 = ry1(i)
+        v1 = vx(i)
+        v2 = vy(i)
+		IF ( r1 <= scramble_B ) THEN
+			IF ( r2 >= scramble_B .AND. r2 <= Ly-scramble_B) THEN
 			!region 1 
-				dout = rx1(i)
-				call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
-			ELSE IF ( ry1(i) < scramble_B) THEN
+				dout = r1
+				call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
+			ELSE IF ( r2 < scramble_B) THEN
 			!region 8 
-				dout = rx1(i)
-				IF ( ry1(i) >= dout ) THEN
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
+				dout = r1
+				IF ( r2 >= dout ) THEN
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
 				ELSE 
-					dout = ry1(i)
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+					dout = r2
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
 				END IF
 			ELSE
 			!region 2 
-				dout = rx1(i)
-				IF ( ry1(i) >= Ly - dout) THEN
-					dout = Ly - ry1(i)
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+				dout = r1
+				IF ( r2 >= Ly - dout) THEN
+					dout = Ly - r2
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
 				ELSE 
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
 				END IF		
 			END IF
-		ELSE IF ( rx1(i) >= Lx-scramble_B ) THEN
-			IF ( ry1(i) >= scramble_B .AND. ry1(i) <= Ly-scramble_B) THEN
+		ELSE IF ( r1 >= Lx-scramble_B ) THEN
+			IF ( r2 >= scramble_B .AND. r2 <= Ly-scramble_B) THEN
 			!region 5
-				dout = Lx - rx1(i)
-				call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
-			ELSE IF ( ry1(i) < scramble_B) THEN
+				dout = Lx - r1
+                call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
+			ELSE IF ( r2 < scramble_B) THEN
 			!region 6
-				dout = Lx - rx1(i)
-				IF ( ry1(i) >= dout ) THEN
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)	
+				dout = Lx - r1
+				IF ( r2 >= dout ) THEN
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
 				ELSE
-					dout = ry1(i)
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+					dout = r2
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
 				END IF
 			ELSE
 			!region 4
-				dout = Lx - rx1(i)
-				IF ( ry1(i) >= Ly - dout) THEN
-					dout = Ly - ry1(i)
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+				dout = Lx - r1
+				IF ( r2 >= Ly - dout) THEN
+					dout = Ly - r2
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
 				ELSE 
-					call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 2)
+                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
 				END IF		
 			ENDIF
 		ELSE
-			IF ( ry1(i) >= Ly-scramble_B) THEN
+			IF ( r2 >= Ly-scramble_B) THEN
 			! region 3
-                dout = Ly - ry1(i)
-                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
-			ELSE IF ( ry1(i) <= scramble_B) THEN
+                dout = Ly - r2
+                call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
+			ELSE IF ( r2 <= scramble_B) THEN
 			! region 7
-                dout = ry1(i)
-                call scramble_pos_vel( rx1(i), ry1(i), vx(i), vy(i), dout, 1)
+                dout = r2
+                call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
 			ENDIF
 		END IF
+        rx1(i) = r1
+        ry1(i) = r2
+        vx(i)  = v1
+        vy(i)  = v2
 	END DO
-    !$OMP END DO
+!!!    !$OMP END DO
 END IF 
-!$OMP END PARALLEL 
+!$OMP END PARALLEL
 end subroutine periodic_xy
 !********************************************************
-subroutine scramble_pos_vel(rx, ry, vx, vy, dout, flag)
-	implicit none
-	INTEGER :: flag
-	REAL(kind=dp) :: rx, ry, vx, vy, dout
-    REAL(kind=dp) :: prob_disp, normal_vel(1)
+subroutine scramble_pos_vel(r1, r2, v1, v2, dout, flag)
+implicit none
+INTEGER :: flag
+REAL(kind=dp) :: r1, r2, v1, v2, dout
+REAL(kind=dp) :: prob_disp, normal_vel(1)
 
-	prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-	IF ( prob_disp >= ran() ) THEN
-        IF ( flag == 1 ) THEN   ! horizontal displacement
-            rx = (Lx - 2.0*dout)*ran() + dout 
-        ELSE
-            ry = (Ly - 2.0*dout)*ran() + dout 
-        ENDIF
-        call random_normal( normal_vel, 1, scramble_U0, std) 
-        vx = normal_vel(1)
-        call random_normal( normal_vel, 1, avg, std) 
-        vy = normal_vel(1)
-	END IF
+prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
+IF ( prob_disp >= ran() ) THEN
+    IF ( flag == 1 ) THEN   ! horizontal displacement
+        r1 = (Lx - 2.0*dout)*ran() + dout 
+    ELSE
+        r2 = (Ly - 2.0*dout)*ran() + dout 
+    ENDIF
+    call random_normal( normal_vel, 1, scramble_U0, std) 
+    v1 = normal_vel(1)
+    call random_normal( normal_vel, 1, avg, std) 
+    v2 = normal_vel(1)
+END IF
 end subroutine scramble_pos_vel
 
 !********************************************************
@@ -1446,7 +1459,7 @@ write(10,*) "Streaming Algorithm:  ",merge(merge('Leapfrog','  Verlet',verlet/=1
 write(10,*) "Periodicity in x: ",merge('Yes',' No',xy(1))
 write(10,*) "Periodicity in y: ",merge('Yes',' No',xy(2))
 write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',random_grid_shift==1)
-write(10,*) "Wall Boundary Condition: ",merge('Thermal wall',' Bounce wall',wall_thermal)
+IF ( .NOT. XY(2) ) write(10,*) "Wall Boundary Condition: ",merge('Thermal wall',' Bounce wall',wall_thermal)
 write(10,*)
 write(10,*) "MC applied: ",merge('Yes',' No',MC_scaling==1)
 IF (MC_scaling ==1) write(10,*) "Strength of MC: ",MC_strength
@@ -1461,7 +1474,14 @@ write(10,*) "Analytical Viscosity as per given condition:  ",mu_tot
 write(10,*) "Maximum Poiseuille velocity (analytical): ", Vp
 write(10,*) "Maximum Reynolds number: ", Re
 write(10,*)
-IF (obst == 1) write(10,*) "Cylinder centre position: ",xp,yp," and its radius: ",rad
+IF (obst == 1) THEN
+    IF ( obst_shape == 1 ) THEN
+        write(10,*) "Cylinder centre position: ",xp,yp," and its radius: ",rad
+    ELSE
+        write(10,*) "Rectangle lower position: ", obst_x, obst_y," and its length, breadth: ", obst_length, obst_breadth
+    END IF
+    write(10,*) " Boundary condition on obstacle: ", merge( 'Thermal', 'Bounce ', obst_thermal )
+END IF
 IF (wall_oscillatory == 1) write(10,*) 'Oscillating lower wall'
 IF (R_P) write(10,*) "Reimann Problem with density ratio: ",RP_ratio
 close(10)
