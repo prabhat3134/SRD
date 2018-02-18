@@ -1469,6 +1469,7 @@ write(10,*)
 write(10,*) "Streaming Algorithm:  ",merge(merge('Leapfrog','  Verlet',verlet/=1),'   Euler',verlet/=0)
 write(10,*) "Periodicity in x: ",merge('Yes',' No',xy(1))
 write(10,*) "Periodicity in y: ",merge('Yes',' No',xy(2))
+IF (scrambling) write(10,*) "Scrambling boundary zone with width:", scramble_B,', and imposed velocity:', scramble_U0
 write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',random_grid_shift==1)
 IF ( .NOT. XY(2) ) write(10,*) "Wall Boundary Condition: ",merge('Thermal wall',' Bounce wall',wall_thermal)
 write(10,*)
