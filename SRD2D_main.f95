@@ -16,15 +16,9 @@ t_tot = tmax/dt_c
 call initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list) 
 call param_file()
 do iter=1,t_tot
-!$ start = omp_get_wtime()
     call streaming(rx, ry, rx1, ry1, vx, vy)
-!$ finish = omp_get_wtime()
-PRINT '("Streaming = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
 
-!$ start = omp_get_wtime()
     IF (obst==1) call par_in_cyl(rx, ry, rx1, ry1, vx, vy)
-!$ finish = omp_get_wtime()
-PRINT '("Par in Cyl = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
     
     if (.NOT. xy(2)) then 
         IF (wall_thermal) THEN
@@ -33,26 +27,17 @@ PRINT '("Par in Cyl = ",I7," CPU run time =",F10.2," seconds")', iter, finish-st
             call bounce_wall(rx, ry, rx1, ry1, vx, vy)
         END IF
     end if
-!$ start = omp_get_wtime()
     call periodic_xy( rx1, ry1, vx, vy )
     rx = rx1
     ry = ry1
-!$ finish = omp_get_wtime()
-PRINT '("Periodic xy = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
 
     ! Partitioning into cells
     if (random_grid_shift == 0) then  			
         call partition(rx1, ry1, head, list)
         call collision(vx, vy, head, list )! Collision without random grid shift      
     else 
-!$ start = omp_get_wtime()
         call partition_rgs(rx1, ry1, head1, list1)
-!$ finish = omp_get_wtime()
-PRINT '("Partition rgs = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
-!$ start = omp_get_wtime()
         call collision_rgs(vx, vy, head1, list1)
-!$ finish = omp_get_wtime()
-PRINT '("collision rgs = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
     end if    					
 
 !                if (iter .ge. 50 .and. R_P ) call RP_shock_front( rx, ry, vx, vy, head, list, iter )
