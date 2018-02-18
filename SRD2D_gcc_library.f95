@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 1000, Lx = 1000, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 400, Lx = 600, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 5, t_avg = 5e4, avg_interval=10, ensemble_num = 2.5e3
+INTEGER :: tmax = 3e5, t_avg = 2.5e4, avg_interval=5, ensemble_num = 5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -20,7 +20,7 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 10.0, scramble_U0 = 0.6d0,  scramble_exponent = 3.0d0
+REAL(kind=dp) :: scramble_B = 10.0, scramble_U0 = 0.8d0,  scramble_exponent = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
@@ -29,7 +29,7 @@ CHARACTER(len=100) :: file_name='Cylinder_scramble', data_path='./'
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 1, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
-REAL(kind=dp) :: rad = 50, xp = Lx/3.0d0, yp = Ly/2.0d0
+REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
