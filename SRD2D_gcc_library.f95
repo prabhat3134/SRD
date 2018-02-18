@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 400, Lx = 600, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 1000, Lx = 1000, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3e5, t_avg = 2.5e4, avg_interval=10, ensemble_num = 2.5e3
+INTEGER :: tmax = 5, t_avg = 5e4, avg_interval=10, ensemble_num = 2.5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -29,7 +29,7 @@ CHARACTER(len=100) :: file_name='Cylinder_scramble', data_path='./'
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 1, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
-REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
+REAL(kind=dp) :: rad = 50, xp = Lx/3.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
@@ -41,6 +41,10 @@ REAL(kind=dp), ALLOCATABLE :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_v
 !! We should not define  very large static arrays typically of np. 
 !! Use dynamic allocation instead for such arrays and keep stack size unlimited.
 !! This precaution is important when using openmp and can be ignored without openmp.
+
+!#define THERMOSTAT
+!#define POISE_VEL
+
 contains
 !*****************************************************************************
 ! random generator
@@ -315,7 +319,7 @@ IF (obst == 1) THEN
 	ALLOCATE(obst_par(np))
 	ALLOCATE(theta_intersect(np))
 	call box_eliminate(x_dummy, y_dummy)
-	call gridcheck(grid_check)
+	call gridcheck()
 END IF
 
 rx = x_dummy
@@ -632,6 +636,7 @@ if (xy(2)) then
     END DO
     !$OMP END DO
 end if
+!$OMP END PARALLEL
 IF ( scrambling ) THEN
 !!!    !$OMP DO PRIVATE( i, r1, r2, v1, v2, dout )
 	DO i=1,np
@@ -705,7 +710,6 @@ IF ( scrambling ) THEN
 	END DO
 !!!    !$OMP END DO
 END IF 
-!$OMP END PARALLEL
 end subroutine periodic_xy
 !********************************************************
 subroutine scramble_pos_vel(r1, r2, v1, v2, dout, flag)
@@ -730,13 +734,13 @@ end subroutine scramble_pos_vel
 
 !********************************************************
 ! Grid check, gives which grids are overlapping with obstacles for further use in collision
-subroutine gridcheck(grid_check)
+subroutine gridcheck()
 implicit none
-INTEGER :: grid_check(:,:), i, j, x, y
+INTEGER :: i, j, x, y
 REAL(kind=dp) ::  xc, yc, l, b, R, rtmp
 
-!grid_check(0:Ly+1,:) = 0	! This works for ifort compiler
-grid_check(:,:) = 0		! This works for gfortran compiler
+grid_check(0:Ly+1,:) = 0	! This works for ifort/gfortran compiler (if explicit declaration used)
+!grid_check(:,:) = 0		! This works for gfortran compiler
 if (obst_shape==1) then	! for cylinder [center x, center y, radius]
     xc = xp
     yc = yp
@@ -792,14 +796,14 @@ list = 0
 
 do i=1,np
     yindex = ceiling(ry1(i))	
-    xindex = ceiling(rx1(i))		
+    xindex = ceiling(rx1(i))	
     ! linked list algorithm
     if (head(yindex,xindex)==0) then
         head(yindex,xindex)=i
     else 
         list(i) = head(yindex,xindex)
         head(yindex,xindex)=i
-	end if	
+    end if	
 end do
 end subroutine partition
 
@@ -1031,33 +1035,36 @@ subroutine collision_rgs(vx, vy, head1, list1)
 
         deficit = 0
         ! adding ghost particles for wall
-        if (.NOT.(xy(2)) .and. (i==0+grid_up_down .or. i== Ly+grid_up_down .or. grid_check(i,j)==1) .and. (count1 < Gama) .and. (count1 > 0)) then
-            deficit = Gama - count1
-            call random_normal(a,2,0.0d0,sqrt(deficit*kbT))	
-            vxcom(i,j) = vxcom(i,j) + a(1)
-            vycom(i,j) = vycom(i,j) + a(2)
-            virtual(i,j) = 1
-        end if
+	if ( (count1 < Gama) .and. (count1 > 0) ) THEN
+        	if (grid_check(i,j)==1) then
+		    deficit = Gama - count1
+		    call random_normal(a,2,0.0d0,sqrt(deficit*kbT))	
+		    vxcom(i,j) = vxcom(i,j) + a(1)
+		    vycom(i,j) = vycom(i,j) + a(2)
+		    virtual(i,j) = 1
+        	end if
+	endif
 
         if (count1/=0) then
             vxcom(i,j) = vxcom(i,j)/(count1 + deficit)
             vycom(i,j) = vycom(i,j)/(count1 + deficit)
         end if
         jpar = jpar + count1
+        rel_vel_scale = 1.0
         ! Calculation of the energy
+#ifdef THERMOSTAT
         ipar = head1(i,j)
         do while (ipar/=0)
             Ek(i,j) = Ek(i,j) + 0.5*((vx(ipar) -vxcom(i,j))**2 +  (vy(ipar) - vycom(i,j))**2)
             ipar = list1(ipar)
         end do
-        rel_vel_scale = 1.0
         !Obtain the scale factor for MB scaling 
         if (mb_scaling == 1 .and. mod(mbs_iter, mbs_freq) == 0 .and. count1 >= 3 .and. virtual(i,j)==0 ) then
             rel_vel_scale = vel_scale_ln(Ek(i,j),count1) 
         else if (MC_scaling == 1 .and. count1>=2 .and. virtual(i,j)==0) then
             rel_vel_scale = vel_scale_MC(Ek(i,j),count1)
         endif
-
+#endif
         ! Performing the collision step with the relevant velocity scale
         ! Rotation of velocity
         ipar = head1(i,j)
@@ -1086,6 +1093,8 @@ integer :: i, j
 real(kind=dp) :: vxwall(1), vywall(1)
 
 j = 0
+grid_check( 0,: ) = 1
+grid_check( Ly+1 ,: ) = 1
 !Wall = (ry1 > (Ly*1.0) .or. ry1 < 0.0)
 !call random_normal(vxwall,np1,avg,std)
 !call random_weibull(vywall,np1)
@@ -1174,7 +1183,8 @@ do i = 1,Ly
         vxcom(i,j) = vxcom(i,j) + vx(ipar)
         vycom(i,j) = vycom(i,j) + vy(ipar)
         p_count = p_count + 1
-        IF ( write_poise_vel ) THEN
+        !IF ( write_poise_vel ) THEN
+#ifdef POISE_VEL
             IF (half_plane==2) THEN
                 plane_pos = i-0.5
                 weight  = (ry(ipar)-plane_pos)/0.5
@@ -1191,7 +1201,8 @@ do i = 1,Ly
             vy_avg(k+1) = vy_avg(k+1) + vy(ipar)*weight
             tot_part_count(k) = tot_part_count(k) + (1-weight)
             tot_part_count(k+1) = tot_part_count(k+1) + weight
-        END IF
+        !END IF
+#endif
         ipar = list(ipar)
 	end do
 	density(i,j) = p_count
