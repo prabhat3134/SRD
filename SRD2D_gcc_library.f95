@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 1000, Lx = 1000, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 400, Lx = 750, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 5, t_avg = 5e4, avg_interval=10, ensemble_num = 2.5e3
+INTEGER :: tmax = 3e5, t_avg = 2.5e4, avg_interval=5, ensemble_num = 5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -20,7 +20,7 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 10.0, scramble_U0 = 0.6d0,  scramble_exponent = 3.0d0
+REAL(kind=dp) :: scramble_B = 10.0, scramble_U0 = 0.8d0,  scramble_exponent = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
@@ -29,7 +29,7 @@ CHARACTER(len=100) :: file_name='Cylinder_scramble', data_path='./'
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 1, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
-REAL(kind=dp) :: rad = 50, xp = Lx/3.0d0, yp = Ly/2.0d0
+REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
@@ -636,9 +636,8 @@ if (xy(2)) then
     END DO
     !$OMP END DO
 end if
-!$OMP END PARALLEL
 IF ( scrambling ) THEN
-!!!    !$OMP DO PRIVATE( i, r1, r2, v1, v2, dout )
+    !$OMP DO PRIVATE( i, r1, r2, v1, v2, dout )
 	DO i=1,np
         r1 = rx1(i)
         r2 = ry1(i)
@@ -708,8 +707,9 @@ IF ( scrambling ) THEN
         vx(i)  = v1
         vy(i)  = v2
 	END DO
-!!!    !$OMP END DO
+    !$OMP END DO
 END IF 
+!$OMP END PARALLEL
 end subroutine periodic_xy
 !********************************************************
 subroutine scramble_pos_vel(r1, r2, v1, v2, dout, flag)
@@ -739,7 +739,7 @@ implicit none
 INTEGER :: i, j, x, y
 REAL(kind=dp) ::  xc, yc, l, b, R, rtmp
 
-grid_check(0:Ly+1,:) = 0	! This works for ifort/gfortran compiler (if explicit declaration used)
+!grid_check(0:Ly+1,:) = 0	! This works for ifort/gfortran compiler (if explicit declaration used)
 !grid_check(:,:) = 0		! This works for gfortran compiler
 if (obst_shape==1) then	! for cylinder [center x, center y, radius]
     xc = xp
@@ -1034,16 +1034,16 @@ subroutine collision_rgs(vx, vy, head1, list1)
         end do
 
         deficit = 0
-        ! adding ghost particles for wall
-	if ( (count1 < Gama) .and. (count1 > 0) ) THEN
-        	if (grid_check(i,j)==1) then
-		    deficit = Gama - count1
-		    call random_normal(a,2,0.0d0,sqrt(deficit*kbT))	
-		    vxcom(i,j) = vxcom(i,j) + a(1)
-		    vycom(i,j) = vycom(i,j) + a(2)
-		    virtual(i,j) = 1
+        ! adding ghost particles for wall or obstacle cells based on y-boundary condition
+        IF ( (count1 < Gama) .and. (count1 > 0) ) THEN
+        	if ( ( grid_check(i,j) == 1 ) .or.  ( .NOT.( xy(2) ) .and. ( i == 0 + grid_up_down .or. i == Ly + grid_up_down ) ) ) then
+                deficit = Gama - count1
+                call random_normal(a,2,0.0d0,sqrt(deficit*kbT))	
+                vxcom(i,j) = vxcom(i,j) + a(1)
+                vycom(i,j) = vycom(i,j) + a(2)
+                virtual(i,j) = 1
         	end if
-	endif
+        ENDIF
 
         if (count1/=0) then
             vxcom(i,j) = vxcom(i,j)/(count1 + deficit)
@@ -1390,7 +1390,7 @@ subroutine bounce_wall(rx, ry, rx1, ry1, vx, vy)
         lower_wall_i = lower_wall_f
         lower_wall_f = lower_wall_i + v_wall*dt_c
         v_low_wall  = v_wall
-	if (mod(iter, wall_freq) == 0 ) v_wall = -1.0d0*v_wall
+        if (mod(iter, wall_freq) == 0 ) v_wall = -1.0d0*v_wall
         grid_check( 0:int(f_wall), : ) = 0
         grid_check( 0:ceiling(lower_wall_f), : ) = 1	! for collision
 	else
