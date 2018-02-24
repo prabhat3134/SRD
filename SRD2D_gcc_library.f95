@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 400, Lx = 750, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 200, Lx = 200, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3e5, t_avg = 2.5e4, avg_interval=5, ensemble_num = 5e3
+INTEGER :: tmax = 3e5, t_avg = 1e5, avg_interval=20, ensemble_num = 1e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -20,14 +20,14 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 10.0, scramble_U0 = 0.8d0,  scramble_exponent = 3.0d0
+REAL(kind=dp) :: scramble_B = 5.0d0, scramble_U0 = 0.4d0,  scramble_exponent = 3.0d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
-CHARACTER(len=100) :: file_name='Cylinder_scramble', data_path='./' 
+CHARACTER(len=100) :: file_name='scramble', data_path='./' 
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
-INTEGER :: obst = 1, obst_shape = 1
+INTEGER :: obst = 0, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
 REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
@@ -605,12 +605,12 @@ end subroutine pos_thermal_update
 subroutine periodic_xy( rx1, ry1, vx, vy)
 implicit none
 REAL(kind = dp) :: rx1(:), ry1(:), vx(:), vy(:)
-REAL(kind = dp) :: r1, r2, v1, v2, dout
-INTEGER :: i
+REAL(kind = dp) :: r1, r2, prob_disp, dout, r3, r4
+INTEGER :: i, flag
 
 !$OMP PARALLEL 
 if (xy(1)) then
-    !$OMP DO
+    !$OMP DO SCHEDULE( GUIDED )
     DO i=1,np
         IF (rx1(i) < 0.0) THEN
             rx1(i) = rx1(i) + Lx
@@ -624,7 +624,7 @@ if (xy(1)) then
 end if
 
 if (xy(2)) then
-    !$OMP DO
+    !$OMP DO SCHEDULE( GUIDED )
     DO i=1,np
         IF (ry1(i) < 0.0) THEN
             ry1(i) = ry1(i) + Ly
@@ -637,100 +637,54 @@ if (xy(2)) then
     !$OMP END DO
 end if
 IF ( scrambling ) THEN
-    !$OMP DO PRIVATE( i, r1, r2, v1, v2, dout )
+    !$OMP DO PRIVATE( r1, r2, prob_disp, dout, flag, r3, r4 ), SCHEDULE( GUIDED )
 	DO i=1,np
-        r1 = rx1(i)
-        r2 = ry1(i)
-        v1 = vx(i)
-        v2 = vy(i)
+        r1 = rx1(i);        r2 = ry1(i);        flag = 0
 		IF ( r1 <= scramble_B ) THEN
-			IF ( r2 >= scramble_B .AND. r2 <= Ly-scramble_B) THEN
-			!region 1 
-				dout = r1
-				call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
-			ELSE IF ( r2 < scramble_B) THEN
-			!region 8 
-				dout = r1
-				IF ( r2 >= dout ) THEN
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
-				ELSE 
-					dout = r2
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
-				END IF
-			ELSE
-			!region 2 
-				dout = r1
-				IF ( r2 >= Ly - dout) THEN
-					dout = Ly - r2
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
-				ELSE 
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
-				END IF		
-			END IF
+            dout = r1;      flag = 2;           ! region 1,2,8
+        ! default scrambling in y-direction with dout = r1, flag = 2
+            IF ( r2 < dout ) THEN
+                dout = r2;      flag = 1;
+            ELSE IF ( r2 > Ly - dout ) THEN
+                dout = Ly-r2;   flag = 1;
+            END IF
 		ELSE IF ( r1 >= Lx-scramble_B ) THEN
-			IF ( r2 >= scramble_B .AND. r2 <= Ly-scramble_B) THEN
-			!region 5
-				dout = Lx - r1
-                call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
-			ELSE IF ( r2 < scramble_B) THEN
-			!region 6
-				dout = Lx - r1
-				IF ( r2 >= dout ) THEN
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
-				ELSE
-					dout = r2
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
-				END IF
-			ELSE
-			!region 4
-				dout = Lx - r1
-				IF ( r2 >= Ly - dout) THEN
-					dout = Ly - r2
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
-				ELSE 
-                    call scramble_pos_vel( r1, r2, v1, v2, dout, 2)
-				END IF		
-			ENDIF
+        ! default scrambling in y-direction with dout = Lx - r1, flag = 2
+            dout = Lx - r1;     flag = 2;          ! region 4,5,6
+            IF ( r2 < dout ) THEN
+                dout = r2;      flag = 1;
+            ELSE IF ( r2 > Ly - dout ) THEN
+                dout = Ly-r2;   flag = 1;
+            END IF
 		ELSE
-			IF ( r2 >= Ly-scramble_B) THEN
-			! region 3
-                dout = Ly - r2
-                call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
-			ELSE IF ( r2 <= scramble_B) THEN
-			! region 7
-                dout = r2
-                call scramble_pos_vel( r1, r2, v1, v2, dout, 1)
+			IF ( r2 >= Ly-scramble_B) THEN			! region 3
+                dout = Ly-r2;   flag = 1;
+			ELSE IF ( r2 <= scramble_B) THEN    	! region 7
+                dout = r2;      flag = 1;
 			ENDIF
 		END IF
-        rx1(i) = r1
-        ry1(i) = r2
-        vx(i)  = v1
-        vy(i)  = v2
+        IF ( flag /= 0 ) THEN
+            prob_disp = (1.0d0 - dout/scramble_B)**scramble_exponent;       r3 = ran();
+            IF ( prob_disp >= r3 ) THEN
+                r4 = ran()
+                IF ( flag == 1 ) THEN   ! horizontal displacement
+                    r1 = (Lx*1.0d0 - 2.0d0*dout)*r4 + dout 
+                ELSE
+                    r2 = (Ly*1.0d0 - 2.0d0*dout)*r4 + dout 
+                ENDIF
+! In OMP, always assign ran() to private variables explicitly for all threads to have separate value 
+                rx1(i) = r1;        ry1(i) = r2;    r3 = ran();       r4 = ran(); 
+                ! Drawing velocities from the Maxwell-Boltzmann distribution
+                vx(i) = std*sqrt(-2*log( r3 ))*cos(2*pi* r4 ) + scramble_U0
+                r3 = ran();     r4  = ran();
+                vy(i) = std*sqrt(-2*log( r3 ))*cos(2*pi* r4 ) + avg
+            END IF
+        END IF
 	END DO
     !$OMP END DO
 END IF 
 !$OMP END PARALLEL
 end subroutine periodic_xy
-!********************************************************
-subroutine scramble_pos_vel(r1, r2, v1, v2, dout, flag)
-implicit none
-INTEGER :: flag
-REAL(kind=dp) :: r1, r2, v1, v2, dout
-REAL(kind=dp) :: prob_disp, normal_vel(1)
-
-prob_disp = (1.0 - dout/scramble_B)**scramble_exponent
-IF ( prob_disp >= ran() ) THEN
-    IF ( flag == 1 ) THEN   ! horizontal displacement
-        r1 = (Lx - 2.0*dout)*ran() + dout 
-    ELSE
-        r2 = (Ly - 2.0*dout)*ran() + dout 
-    ENDIF
-    call random_normal( normal_vel, 1, scramble_U0, std) 
-    v1 = normal_vel(1)
-    call random_normal( normal_vel, 1, avg, std) 
-    v2 = normal_vel(1)
-END IF
-end subroutine scramble_pos_vel
 
 !********************************************************
 ! Grid check, gives which grids are overlapping with obstacles for further use in collision
