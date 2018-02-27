@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 200, Lx = 200, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 400, Lx = 600, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3e5, t_avg = 1e5, avg_interval=20, ensemble_num = 1e3
+INTEGER :: tmax = 2e5, t_avg = 1.0e4, avg_interval=4, ensemble_num = 5e3
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -20,14 +20,14 @@ LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 5.0d0, scramble_U0 = 0.4d0,  scramble_exponent = 3.0d0
+REAL(kind=dp) :: scramble_B = 10.0d0, scramble_U0 = 0.8d0,  scramble_exponent = 2.5d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
 CHARACTER(len=100) :: file_name='scramble', data_path='./' 
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
-INTEGER :: obst = 0, obst_shape = 1
+INTEGER :: obst = 1, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
 REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
@@ -636,8 +636,9 @@ if (xy(2)) then
     END DO
     !$OMP END DO
 end if
+!$OMP END PARALLEL
 IF ( scrambling ) THEN
-    !$OMP DO PRIVATE( r1, r2, prob_disp, dout, flag, r3, r4 ), SCHEDULE( GUIDED )
+!    !$OMP DO PRIVATE( r1, r2, prob_disp, dout, flag, r3, r4 ), SCHEDULE( GUIDED )
 	DO i=1,np
         r1 = rx1(i);        r2 = ry1(i);        flag = 0
 		IF ( r1 <= scramble_B ) THEN
@@ -681,9 +682,8 @@ IF ( scrambling ) THEN
             END IF
         END IF
 	END DO
-    !$OMP END DO
+!    !$OMP END DO
 END IF 
-!$OMP END PARALLEL
 end subroutine periodic_xy
 
 !********************************************************
@@ -1423,7 +1423,7 @@ write(10,*)
 write(10,*) "Streaming Algorithm:  ",merge(merge('Leapfrog','  Verlet',verlet/=1),'   Euler',verlet/=0)
 write(10,*) "Periodicity in x: ",merge('Yes',' No',xy(1))
 write(10,*) "Periodicity in y: ",merge('Yes',' No',xy(2))
-IF (scrambling) write(10,*) "Scrambling boundary zone with width:", scramble_B,', and imposed velocity:', scramble_U0
+IF (scrambling) write(10,*) "Scrambling zone with width:", scramble_B,', exponent:', scramble_exponent,'  and imposed velocity:', scramble_U0
 write(10,*) "Random Grid Shift applied: ",merge('Yes',' No',random_grid_shift==1)
 IF ( .NOT. XY(2) ) write(10,*) "Wall Boundary Condition: ",merge('Thermal wall',' Bounce wall',wall_thermal)
 write(10,*)
