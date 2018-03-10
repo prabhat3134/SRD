@@ -42,7 +42,7 @@ do iter=1,t_tot
 
 !                if (iter .ge. 50 .and. R_P ) call RP_shock_front( rx, ry, vx, vy, head, list, iter )
 
-    if (mod(iter,10000) == 0) then
+    if (mod(iter,100) == 0) then
                     call cpu_time(finish)
         !$ finish = omp_get_wtime()
         PRINT '("Iteration = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start

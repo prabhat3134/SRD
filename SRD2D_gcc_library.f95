@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 400, Lx = 600, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 64, Lx = 64, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 2e5, t_avg = 1.0e4, avg_interval=4, ensemble_num = 5e3
+INTEGER :: tmax = 1e5, t_avg = 2.0e4, avg_interval=1, ensemble_num = 2e4 
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -19,22 +19,23 @@ LOGICAL :: xy(2)=[.TRUE., .TRUE.], temperature = .TRUE., wall_thermal = .FALSE.
 LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
-LOGICAL :: scrambling = .TRUE.
-REAL(kind=dp) :: scramble_B = 10.0d0, scramble_U0 = 0.8d0,  scramble_exponent = 2.5d0
+LOGICAL :: scrambling = .FALSE.
+REAL(kind=dp) :: scramble_B = 10.0d0, scramble_U0 = 0.5d0,  scramble_exponent = 2.5d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
+INTEGER, PARAMETER :: dynamic_den_num = 1000, dynamic_den_int = 4000    ! Result depends on avg_interval which controls calling the averaging routine
 CHARACTER(len=100) :: file_name='scramble', data_path='./' 
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
-INTEGER :: obst = 1, obst_shape = 1
+INTEGER :: obst = 0, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
-REAL(kind=dp) :: rad = 10, xp = Lx/3.0d0, yp = Ly/2.0d0
+REAL(kind=dp) :: rad = 10, xp = Lx/2.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
 ! Analysis of particle dynamics in equilibrium system, assuming periodic in both direction
-LOGICAL :: MSD = .FALSE., STRUCTURE_FUNC = .FALSE., trans_vel_SF = .FALSE.
+LOGICAL :: MSD = .FALSE., STRUCTURE_FUNC = .TRUE., trans_vel_SF = .FALSE.
 INTEGER,PARAMETER :: tau = 1000, total_t = 50000, t_start = 50000
 double complex,allocatable :: rho_k(:,:,:), S_k(:,:,:)
 REAL(kind=dp), ALLOCATABLE :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_value(:), par_periodic(:,:)
@@ -208,7 +209,7 @@ IF (STRUCTURE_FUNC) THEN
 	!$OMP END PARALLEL DO
 	open(unit=20,file='DSF.dat',action='write',status = 'replace')
 	DO j=0,tau
-		write(20,"(3F15.5)") S_factor(1,0,j),  S_factor(0,1,j), S_factor(1,1,j)
+		write(20,"(3F15.5)") S_factor(1,0,j), S_factor(0,1,j), S_factor(1,1,j)
 	END DO
 	close(20)
 END IF
@@ -328,50 +329,50 @@ ry = y_dummy
 call random_normal(vx,np,avg,std)
 call random_normal(vy,np,avg,std)
 
+IF (R_P) call Riemann_initial( rx, ry, vx, vy )
+
 IF ( scrambling ) THEN
     call random_normal(vx,np, scramble_U0, std )
     call random_normal(vy,np,avg,std)
 END IF
-
-IF (R_P) call Riemann_initial( rx, ry, vx, vy )
-
+    
 call partition(rx,ry,head,list)
 vxcom = 0.0d0
 vycom = 0.0d0
 Ek = 0.0d0
 DO j=1,Lx
 DO i=1,Ly
-	p_count = 0
-	ipar = head(i,j)					
-	do while (ipar/=0)			
-		vxcom(i,j) = vxcom(i,j) + vx(ipar)
-		vycom(i,j) = vycom(i,j) + vy(ipar)
-		p_count = p_count + 1
-		ipar = list(ipar)
-	end do
-	if (p_count/=0) then
-		vxcom(i,j) = vxcom(i,j)/p_count
-		vycom(i,j) = vycom(i,j)/p_count
-	end if	
-	ipar = head(i,j)
-	do while (ipar/=0)
-		vx(ipar) = vx(ipar) - vxcom(i,j) 
-		vy(ipar) = vy(ipar) - vycom(i,j)
-		Ek(i,j)  = Ek(i,j) + 0.5*( vx(ipar)**2 + vy(ipar)**2 )
-		ipar = list(ipar)
-	end do
-        IF (Init_unity_temp) THEN
-            if (p_count .gt. 1) then
-                temp = Ek(i,j)/( (p_count - 1)*1.0d0)
-                vel_scale = sqrt(kbT/temp)
-                ipar = head(i,j)
-                do while (ipar/=0)
-                    vx(ipar) = vx(ipar) * vel_scale
-                    vy(ipar) = vy(ipar) * vel_scale
-                    ipar = list(ipar)
-                end do
-            end if
-        END IF
+    p_count = 0
+    ipar = head(i,j)					
+    do while (ipar/=0)			
+        vxcom(i,j) = vxcom(i,j) + vx(ipar)
+        vycom(i,j) = vycom(i,j) + vy(ipar)
+        p_count = p_count + 1
+        ipar = list(ipar)
+    end do
+    if (p_count/=0) then
+        vxcom(i,j) = vxcom(i,j)/p_count
+        vycom(i,j) = vycom(i,j)/p_count
+    end if	
+    ipar = head(i,j)
+    do while (ipar/=0)
+        vx(ipar) = vx(ipar) - vxcom(i,j) + max( scramble_U0, avg ) 
+        vy(ipar) = vy(ipar) - vycom(i,j)
+        Ek(i,j)  = Ek(i,j) + 0.5*( vx(ipar)**2 + vy(ipar)**2 )
+        ipar = list(ipar)
+    end do
+    IF (Init_unity_temp) THEN
+        if (p_count .gt. 1) then
+            temp = Ek(i,j)/( (p_count - 1)*1.0d0)
+            vel_scale = sqrt(kbT/temp)
+            ipar = head(i,j)
+            do while (ipar/=0)
+                vx(ipar) = vx(ipar) * vel_scale
+                vy(ipar) = vy(ipar) * vel_scale
+                ipar = list(ipar)
+            end do
+        end if
+    END IF
 END DO
 END DO
 
@@ -1116,6 +1117,7 @@ integer :: i, j, k, ipar, p_count, out_unit, density(Ly,Lx),den_t(4)
 real(kind=dp) :: vxcom(Ly,Lx), vycom(Ly,Lx), temp_com(Ly,Lx),  weight, plane_pos, vxc, vyc
 real(kind=dp), save :: vx1(Ly,Lx)=0.0d0, vy1(Ly,Lx)=0.0d0, forcing(2) = 0.0d0, tx(Ly,Lx) = 0.0d0, dens(Ly,Lx) = 0.0d0,&
 vx_avg(grid_points)=0.0d0, vy_avg(grid_points)=0.0d0,  tot_part_count(grid_points)=0.0d0, converge(Ly,Lx,2)=0.0d0 ! every grid points considered from 0 to Ly
+INTEGER, SAVE :: dynamic_den_array( dynamic_den_num, Lx ) = 0
 logical :: Lexist
 CHARACTER(LEN=200)  :: fname, fmt_spec
 integer,save :: interval = 0, den_count(4) = 0, png_write_count=0
@@ -1175,24 +1177,31 @@ end do
 !$OMP END PARALLEL DO
 
 
-IF (dynamic_density) THEN
+IF ( dynamic_density ) THEN
 	den_count(1) = den_count(1) + 1
-	write (fname, "(A14,I0)") "Dyn_density_1_",den_count(1)                             
-    open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-	write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
-	DO j=1,Ly
-        write (out_unit, fmt = fmt_spec) density(j,:)*1.0d0 
-	END DO
-    close(out_unit)
-	IF (temperature) THEN
-        write (fname, "(A11,I0)") "Dyn_temp_1_",den_count(1)                             
-        open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-        write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
-        DO j=1,Ly
-            write (out_unit, fmt = fmt_spec) temp_com(j,:)*1.0d0 
-        END DO
-    close(out_unit)
-	END IF
+    IF ( den_count(1) <= dynamic_den_num ) THEN
+        dynamic_den_array( den_count(1), : ) = density( int(yp), : )
+        IF ( mod( den_count(1), dynamic_den_num ) == 0 ) THEN
+            den_count(2) = den_count(2) + 1
+            write (fname, "(A16,I0)") "Dynamic_density_",den_count(2)                             
+            open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+            write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
+            DO j=1, dynamic_den_num
+                write (out_unit, fmt = fmt_spec) dynamic_den_array( j, :)*1.0d0 
+            END DO
+            close(out_unit)
+    !        IF (temperature) THEN
+    !            write (fname, "(A11,I0)") "Dyn_temp_1_",den_count(1)                             
+    !            open (unit=out_unit,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+    !            write (fmt_spec,'(a,I0,a)') '( ', Lx ,'F10.5)'
+    !            DO j=1,Ly
+    !                write (out_unit, fmt = fmt_spec) temp_com(j,:)*1.0d0 
+    !            END DO
+    !            close(out_unit)
+    !        END IF
+        END IF
+    END IF
+    IF ( den_count(1) == dynamic_den_int ) den_count(1) = 0
 END IF
 
 IF (image)THEN
@@ -1450,6 +1459,7 @@ IF (obst == 1) THEN
 END IF
 IF (wall_oscillatory == 1) write(10,*) 'Oscillating lower wall'
 IF (R_P) write(10,*) "Reimann Problem with density ratio: ",RP_ratio
+IF (dynamic_density) write(10,*) 'Num of samples:', dynamic_den_num,' collected every ', dynamic_den_int,' interval during averaging.'
 close(10)
 
 END SUBROUTINE param_file
