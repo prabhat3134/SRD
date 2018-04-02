@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 32, Lx = 32, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 600, Lx = 1200, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 1.5e1, t_avg = 2.0e4, avg_interval=1, ensemble_num = 1 
+INTEGER :: tmax = 3e4, t_avg = 2.0e4, avg_interval=1, ensemble_num = 1 
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -26,13 +26,13 @@ INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
 INTEGER, PARAMETER :: dynamic_den_num = 1000, dynamic_den_int = 4000    ! Result depends on avg_interval which controls calling the averaging routine
 CHARACTER(len=100) :: file_name='scramble', data_path='./' 
-INTEGER :: restart = 1, restart_iter = 1e1
+INTEGER :: restart = 1, restart_iter = 1e4
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 1, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
 REAL(kind=dp) :: rad = 10, xp = Lx/2.0d0, yp = Ly/2.0d0
-REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
+REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = 10.0d0, obst_length = 10.0d0
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
 ! Analysis of particle dynamics in equilibrium system, assuming periodic in both direction
@@ -418,7 +418,8 @@ ELSE				!EULER algorithm
 END IF
 IF (obst == 1) THEN
 	IF (obst_shape == 1) THEN
-		obst_par  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
+		!obst_par  = (rx1 - xp)**2 + (ry1 - yp)**2 < rad**2
+		obst_par = ( abs( rx1 - xp ) < ( rad + obst_length ) .and. abs( ry1 - yp ) < ( rad + obst_breadth ) )
 	ELSE
 		obst_par = (abs(rx1 - obst_x) < obst_length/2.0d0 .and. abs(ry1 - obst_y) < obst_breadth/2.0d0)
 	END IF
@@ -435,7 +436,7 @@ implicit none
 integer :: i
 real(kind=dp), dimension(:) :: rx,ry, rx1, ry1, vx, vy
 real(kind =dp) :: dx, dy, dr, de, disc, sol1(2), sol2(2), th, sol(2) 
-real(kind = dp) :: exp1(2), exp2(2) 
+real(kind = dp) :: exp1, exp2 
 
 theta_intersect = 0.0d0
 ! finding the solution of y - mx -c = 0 and x^2 + y^2 = r^2 using the quadratic formula 
@@ -454,27 +455,25 @@ do i=1,np
 		de = (rx(i) -xp)*(ry1(i)-yp) - (rx1(i)-xp)*(ry(i) -yp)
 		disc = (rad**2)*(dr**2)-(de**2) 
 		
-		if (disc > 0) then 
+		if (disc >= 0) then 
 			sol1(1) = (de*dy + SIGN(1.0d0,dy)*dx*SQRT(disc))/(dr**2)
 			sol2(1) = (de*dy - SIGN(1.0d0,dy)*dx*SQRT(disc))/(dr**2)
 			sol1(2) = (-de*dx + ABS(dy)*SQRT(disc))/(dr**2)
 			sol2(2) = (-de*dx - ABS(dy)*SQRT(disc))/(dr**2)
 		else
-			write(*,*) "Negative Discriminant: particle doesn't collide",rx(i), ry(i), rx1(i), ry1(i)
-		endif
-
-		exp1(1) = (sol1(1) + xp - rx1(i))*(sol1(1) + xp - rx(i)) 
-		exp2(1) = (sol2(1) + xp - rx1(i))*(sol2(1) + xp - rx(i))
-		exp1(2) = (sol1(2) + yp - ry1(i))*(sol1(2) + yp - ry(i)) 
-		exp2(2) = (sol2(2) + yp - ry1(i))*(sol2(2) + yp - ry(i)) 
+			!write(*,*) "Negative Discriminant: particle doesn't collide",rx(i), ry(i), rx1(i), ry1(i)
+			continue
+		endif	
 		
-		if ( exp1(1) < 0.0 .and. exp1(2) < 0.0 ) then
+		exp1 = ( sol1(1) - rx(i) )**2. + ( sol1(2) - ry(i) )**2. 
+		exp2 = ( sol2(1) - rx(i) )**2. + ( sol2(2) - ry(i) )**2.
+
+		if ( exp1 < exp2 ) then
 			sol = sol1
-		elseif ( exp2(1) < 0.0 .and. exp2(2) < 0.0 ) then 
+		else 
 			sol = sol2
-		else
-			write(*,*) "intersection algorithm fails",rx(i), ry(i), rx1(i), ry1(i)
 		endif 
+		!write(*,*) "intersection algorithm fails",rx(i), ry(i), rx1(i), ry1(i)
 
 		th = atan2(sol(2), sol(1))
 		theta_intersect(i) = merge(th, th + 2*pi, th >= 0)
