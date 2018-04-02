@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 64, Lx = 64, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 32, Lx = 32, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 1e5, t_avg = 2.0e4, avg_interval=1, ensemble_num = 2e4 
+INTEGER :: tmax = 1.5e1, t_avg = 2.0e4, avg_interval=1, ensemble_num = 1 
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -19,24 +19,25 @@ LOGICAL :: xy(2)=[.TRUE., .TRUE.], temperature = .TRUE., wall_thermal = .FALSE.
 LOGICAL :: R_P = .FALSE., slip = .TRUE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
-LOGICAL :: scrambling = .FALSE.
-REAL(kind=dp) :: scramble_B = 10.0d0, scramble_U0 = 0.5d0,  scramble_exponent = 2.5d0
+LOGICAL :: scrambling = .TRUE.
+REAL(kind=dp) :: scramble_B = 10.0d0, scramble_U0 = 1.5d0,  scramble_exponent = 2.5d0
 ! File naming 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
 INTEGER, PARAMETER :: dynamic_den_num = 1000, dynamic_den_int = 4000    ! Result depends on avg_interval which controls calling the averaging routine
 CHARACTER(len=100) :: file_name='scramble', data_path='./' 
+INTEGER :: restart = 1, restart_iter = 1e1
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
-INTEGER :: obst = 0, obst_shape = 1
+INTEGER :: obst = 1, obst_shape = 1
 LOGICAL :: obst_thermal = .FALSE.
 REAL(kind=dp) :: rad = 10, xp = Lx/2.0d0, yp = Ly/2.0d0
 REAL(kind=dp) :: obst_x = Lx/4.0d0, obst_y = Ly/2.0d0, obst_breadth = Ly*aspect_ratio, obst_length = 400 
 REAL(kind=dp),ALLOCATABLE :: theta_intersect(:)   
 LOGICAL, ALLOCATABLE ::  obst_par(:)
 ! Analysis of particle dynamics in equilibrium system, assuming periodic in both direction
-LOGICAL :: MSD = .FALSE., STRUCTURE_FUNC = .TRUE., trans_vel_SF = .FALSE.
-INTEGER,PARAMETER :: tau = 1000, total_t = 50000, t_start = 50000
+LOGICAL :: MSD = .FALSE., STRUCTURE_FUNC = .FALSE., trans_vel_SF = .FALSE.
+INTEGER,PARAMETER :: tau = 500, total_t = 10000, t_start = 50000
 double complex,allocatable :: rho_k(:,:,:), S_k(:,:,:)
 REAL(kind=dp), ALLOCATABLE :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_value(:), par_periodic(:,:)
 !! We should not define  very large static arrays typically of np. 
@@ -52,7 +53,7 @@ contains
 FUNCTION ran()
     IMPLICIT NONE
         INTEGER, PARAMETER :: K4B=selected_int_kind(9)			
-        REAL :: ran
+        REAL(kind=dp) :: ran
     !“Minimal” random number generator of Park and Miller combined with a Marsaglia shift
     !sequence. Returns a uniform random deviate between 0.0 and 1.0 (exclusive of the endpoint
     !values). This fully portable, scalar generator has the “traditional” (not Fortran 90) calling
@@ -334,47 +335,47 @@ IF (R_P) call Riemann_initial( rx, ry, vx, vy )
 IF ( scrambling ) THEN
     call random_normal(vx,np, scramble_U0, std )
     call random_normal(vy,np,avg,std)
-END IF
-    
-call partition(rx,ry,head,list)
-vxcom = 0.0d0
-vycom = 0.0d0
-Ek = 0.0d0
-DO j=1,Lx
-DO i=1,Ly
-    p_count = 0
-    ipar = head(i,j)					
-    do while (ipar/=0)			
-        vxcom(i,j) = vxcom(i,j) + vx(ipar)
-        vycom(i,j) = vycom(i,j) + vy(ipar)
-        p_count = p_count + 1
-        ipar = list(ipar)
-    end do
-    if (p_count/=0) then
-        vxcom(i,j) = vxcom(i,j)/p_count
-        vycom(i,j) = vycom(i,j)/p_count
-    end if	
-    ipar = head(i,j)
-    do while (ipar/=0)
-        vx(ipar) = vx(ipar) - vxcom(i,j) + max( scramble_U0, avg ) 
-        vy(ipar) = vy(ipar) - vycom(i,j)
-        Ek(i,j)  = Ek(i,j) + 0.5*( vx(ipar)**2 + vy(ipar)**2 )
-        ipar = list(ipar)
-    end do
-    IF (Init_unity_temp) THEN
+ELSE 
+    call partition(rx,ry,head,list)
+    vxcom = 0.0d0
+    vycom = 0.0d0
+    Ek = 0.0d0
+    DO j=1,Lx
+    DO i=1,Ly
+        p_count = 0
+        ipar = head(i,j)					
+        do while (ipar/=0)			
+            vxcom(i,j) = vxcom(i,j) + vx(ipar)
+            vycom(i,j) = vycom(i,j) + vy(ipar)
+            p_count = p_count + 1
+            ipar = list(ipar)
+        end do
         if (p_count .gt. 1) then
-            temp = Ek(i,j)/( (p_count - 1)*1.0d0)
-            vel_scale = sqrt(kbT/temp)
-            ipar = head(i,j)
-            do while (ipar/=0)
-                vx(ipar) = vx(ipar) * vel_scale
-                vy(ipar) = vy(ipar) * vel_scale
-                ipar = list(ipar)
-            end do
-        end if
-    END IF
-END DO
-END DO
+            vxcom(i,j) = vxcom(i,j)/p_count
+            vycom(i,j) = vycom(i,j)/p_count
+        end if	
+        ipar = head(i,j)
+        do while (ipar/=0)
+            vx(ipar) = vx(ipar) - vxcom(i,j) ! max( scramble_U0, avg ) 
+            vy(ipar) = vy(ipar) - vycom(i,j)
+            Ek(i,j)  = Ek(i,j) + 0.5*( vx(ipar)**2 + vy(ipar)**2 )
+            ipar = list(ipar)
+        end do
+        IF (Init_unity_temp) THEN
+            if (p_count .gt. 1) then
+                temp = Ek(i,j)/( (p_count - 1)*1.0d0)
+                vel_scale = sqrt(kbT/temp)
+                ipar = head(i,j)
+                do while (ipar/=0)
+                    vx(ipar) = vx(ipar) * vel_scale
+                    vy(ipar) = vy(ipar) * vel_scale
+                    ipar = list(ipar)
+                end do
+            end if
+        END IF
+    END DO
+    END DO
+END IF
 
 IF (MSD) allocate( MSD_xy(np,2,0:total_t), par_periodic(np,2), par_temp(np), MSD_value(tau))
 IF (STRUCTURE_FUNC) THEN
@@ -1103,6 +1104,53 @@ end do
 !$OMP END PARALLEL
 
 end subroutine thermal_wall
+
+
+!***********************************************************************
+!***********************************************************************
+! Writing data to a restart files 
+subroutine write_restartFile( rx, ry, vx, vy, iter )
+IMPLICIT NONE
+INTEGER ::  iter, i
+REAL (kind=dp), DIMENSION(:) :: rx, ry, vx, vy
+CHARACTER (LEN=100) :: fname, fmt_spec
+
+write (fname, "(A10)") "RestartSRD"
+open (unit=20,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
+write(20,"(A16,I8,A23,I8)") "Time iteration: ",iter, ", Number of Particles: ", np
+DO i = 1,np
+    write(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
+END DO
+CLOSE(20)
+end subroutine write_restartFile
+
+!***********************************************************************
+!***********************************************************************
+! Writing data to a restart files 
+subroutine read_restartFile( rx, ry, vx, vy, iter )
+IMPLICIT NONE
+INTEGER ::  iter, i, nbParticle
+REAL (kind=dp), DIMENSION(:) :: rx, ry, vx, vy
+CHARACTER (LEN=100) :: fname, string1, string2, string3, string4
+LOGICAL :: Lexist
+
+write (fname, "(A10)") "RestartSRD"
+inquire(file = trim(data_path)//trim(fname)//'.dat', exist = Lexist)  	
+if ( .NOT. Lexist ) return	
+
+open (unit=20,file=trim(data_path)//trim(fname)//'.dat',action="read",status="old",form="formatted")
+read(20,"(A16,I8,A23,I8)") string1, iter, string2, nbParticle
+IF( nbParticle /= np ) THEN
+    write(*,*) "Restart ERROR :: Particle mismatch in restart file"
+    stop
+END IF
+write(*,*) iter, nbParticle
+DO i=1,np
+    read(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
+END DO
+
+close(20)
+end subroutine read_restartFile
 
 !***********************************************************************
 !***********************************************************************

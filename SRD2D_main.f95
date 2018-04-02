@@ -2,7 +2,7 @@ PROGRAM SRD
 use SRD_library
 IMPLICIT NONE
 
-INTEGER :: iter, t_tot, i, j
+INTEGER :: iter, iter_start=1, t_tot, i, j
 REAL(kind=dp):: start, finish
 INTEGER, ALLOCATABLE :: head(:,:), list(:), head1(:,:), list1(:)
 REAL(kind=dp), ALLOCATABLE, DIMENSION(:) ::rx, ry, rx1, ry1, vx, vy, x_dummy, y_dummy
@@ -14,8 +14,10 @@ t_tot = tmax/dt_c
 !$ start = omp_get_wtime()
 
 call initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list) 
+IF ( restart == 1 ) call read_restartFile( rx, ry, vx, vy, iter_start )
 call param_file()
-do iter=1,t_tot
+
+do iter = iter_start, t_tot
     call streaming(rx, ry, rx1, ry1, vx, vy)
 
     IF (obst==1) call par_in_cyl(rx, ry, rx1, ry1, vx, vy)
@@ -42,7 +44,7 @@ do iter=1,t_tot
 
 !                if (iter .ge. 50 .and. R_P ) call RP_shock_front( rx, ry, vx, vy, head, list, iter )
 
-    if (mod(iter,100) == 0) then
+    if (mod(iter,1000) == 0) then
                     call cpu_time(finish)
         !$ finish = omp_get_wtime()
         PRINT '("Iteration = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
@@ -53,8 +55,9 @@ do iter=1,t_tot
         if (random_grid_shift == 1) call partition(rx,ry,head,list)
         call v_avg(vx,vy, rx, ry, head,list) 
     end if
-    
-    if (( MSD .or. STRUCTURE_FUNC ) .and. iter .gt. t_start) call equilibrium(rx,ry,vx,vy)
+
+    IF ( restart == 1 .AND. MODULO( iter, restart_iter ) == 0 ) call write_restartFile( rx, ry, vx, vy, iter )
+    IF ( ( MSD .or. STRUCTURE_FUNC ) .and. iter .gt. t_start ) call equilibrium(rx,ry,vx,vy)
     IF (MSD .and. iter .eq. t_start) THEN
         par_periodic = 0.0d0
         MSD_xy(:,1,0) = rx
