@@ -4,19 +4,19 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 100, Lx = 200, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 600, Lx = 1200, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 1e1, t_avg = 2.0e4, avg_interval=1, ensemble_num = 1 
+INTEGER :: tmax = 3.0e4, t_avg = 2.5e4, avg_interval=1, ensemble_num = 1 
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
 INTEGER :: mb_scaling = 0, MC_scaling = 0, mbs_freq = 20
 REAL(kind=dp) :: force(2), mu_tot, MC_strength = 0.25d0
 LOGICAL :: xy(2)=[.TRUE., .TRUE.], temperature = .TRUE., wall_thermal = .FALSE.
-LOGICAL :: R_P = .FALSE., slip = .TRUE.
+LOGICAL :: R_P = .FALSE., slip = .FALSE.
 REAL(kind=dp) :: RP_ratio = 3.0d0 
 ! Scrambling Boundary Condition for periodic X-Y condition
 LOGICAL :: scrambling = .TRUE.
@@ -26,7 +26,7 @@ INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
 INTEGER, PARAMETER :: dynamic_den_num = 1000, dynamic_den_int = 4000    ! Result depends on avg_interval which controls calling the averaging routine
 CHARACTER(len=100) :: file_name='scramble', data_path='./' 
-INTEGER :: restart = 1, restart_iter = 1e4
+INTEGER :: restart = 1, restart_iter = 5e3
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
 INTEGER :: obst = 1, obst_shape = 1
@@ -764,6 +764,10 @@ list = 0
 do i=1,np
     yindex = ceiling(ry1(i))	
     xindex = ceiling(rx1(i))	
+    if ( yindex .lt. 0 .or. yindex .gt. 600 .or. xindex .lt. 0 .or. xindex .gt. 1200 ) then
+        write (*,*) "Parition error", rx1(i), ry1(i), i 
+        stop
+    end if
     ! linked list algorithm
     if (head(yindex,xindex)==0) then
         head(yindex,xindex)=i
@@ -1127,8 +1131,12 @@ REAL (kind=dp), DIMENSION(:) :: rx, ry, vx, vy
 CHARACTER (LEN=100) :: fname, fmt_spec
 
 write (fname, "(A10)") "RestartSRD"
-open (unit=20,file=trim(data_path)//trim(fname)//'.dat',action="write",status="replace")
-write(20,"(A16,I8,A23,I8)") "Time iteration: ",iter, ", Number of Particles: ", np
+open (unit=20,file=trim(data_path)//trim(fname)//'.xyz',action="write",status="replace")
+if ( scrambling ) then
+	write(20,"(A16,I8,A23,I8,A20,F10.5)") "Time iteration: ",iter, ", Number of Particles: ", np, ", scramble velocity ", scramble_U0
+else
+	write(20,"(A16,I8,A23,I8)") "Time iteration: ",iter, ", Number of Particles: ", np
+end if
 DO i = 1,np
     write(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
 END DO
@@ -1142,15 +1150,26 @@ subroutine read_restartFile( rx, ry, vx, vy, iter )
 IMPLICIT NONE
 INTEGER ::  iter, i, nbParticle
 REAL (kind=dp), DIMENSION(:) :: rx, ry, vx, vy
+REAL (kind=dp) :: read_scramble_U0
 CHARACTER (LEN=100) :: fname, string1, string2, string3, string4
 LOGICAL :: Lexist
 
 write (fname, "(A10)") "RestartSRD"
-inquire(file = trim(data_path)//trim(fname)//'.dat', exist = Lexist)  	
+inquire(file = trim(data_path)//trim(fname)//'.xyz', exist = Lexist)  	
 if ( .NOT. Lexist ) return	
 
-open (unit=20,file=trim(data_path)//trim(fname)//'.dat',action="read",status="old",form="formatted")
-read(20,"(A16,I8,A23,I8)") string1, iter, string2, nbParticle
+open (unit=20,file=trim(data_path)//trim(fname)//'.xyz',action="read",status="old",form="formatted")
+if ( scrambling ) then
+	read(20,"(A16,I8,A23,I8,A20,F10.5)") string1, iter, string2, nbParticle, string3, read_scramble_u0
+	if ( abs(read_scramble_U0 - scramble_U0 ) .lt. 1e-10 ) then 
+		write(*,*) "Scramble U0 matches, reading continued"
+	else
+		write(*,*) "Restart ERROR :: Scramble U0 mismatch"
+		stop
+	end if
+else 
+	read(20,"(A16,I8,A23,I8)") string1, iter, string2, nbParticle
+end if
 IF( nbParticle /= np ) THEN
     write(*,*) "Restart ERROR :: Particle mismatch in restart file"
     stop
@@ -1159,6 +1178,8 @@ write(*,*) iter, nbParticle
 DO i=1,np
     read(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
 END DO
+
+write (*,*) "Restart file read successfully starting from time= ",iter 
 
 close(20)
 end subroutine read_restartFile
