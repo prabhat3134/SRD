@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 600, Lx = 1200, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 60, Lx = 120, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3.0e4, t_avg = 2.5e4, avg_interval=1, ensemble_num = 1 
+INTEGER :: tmax = 3.0e2, t_avg = 2.5e4, avg_interval=1, ensemble_num = 1 
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -25,7 +25,7 @@ REAL(kind=dp) :: scramble_B = 10.0d0, scramble_U0 = 1.5d0,  scramble_exponent = 
 INTEGER :: wall_oscillatory = 0
 LOGICAL :: image = .FALSE., dynamic_density = .FALSE. ,Init_unity_temp = .FALSE., write_poise_vel = .FALSE.
 INTEGER, PARAMETER :: dynamic_den_num = 1000, dynamic_den_int = 4000    ! Result depends on avg_interval which controls calling the averaging routine
-CHARACTER(len=100) :: file_name='scramble', data_path='./' 
+CHARACTER(len=100) :: file_name='scramble', data_path='./', progress_txt
 INTEGER :: restart = 1, restart_iter = 5e3
 ! cylinder parameters
 ! obst_shape = 1 (for cylinder), 2 (for square)
@@ -46,6 +46,7 @@ REAL(kind=dp), ALLOCATABLE :: S_factor(:,:,:), MSD_xy(:,:,:), par_temp(:), MSD_v
 
 !#define THERMOSTAT
 !#define POISE_VEL
+#define progress(s) OPEN(UNIT = 10, FILE="progress.txt",ACTION = "write",STATUS="old",position="append"); write(10,*) s; CLOSE(10)
 
 contains
 !*****************************************************************************
@@ -524,7 +525,10 @@ DO i=1,np
 		t_app = abs(yp+rad*sin(th) - ry(i))/abs(vy(i))
 		t_sep = dt_c - t_app
 	
-		if (t_sep < 0)  write(*,*) 'Cylinder collision: negative time', rx(i),ry(i),rx1(i),ry1(i),vx(i),vy(i),th 
+		if (t_sep < 0) then
+            write(progress_txt,'(A30,7F10.5)') 'Cylinder collision:negative t:', rx(i),ry(i),rx1(i),ry1(i),vx(i),vy(i),th 
+            progress(trim( progress_txt ))
+        end if
 		! x velocity changes in approach -> reversal -> x velocity changes in separation	
 		vx(i) = vx(i) - f_b*dt_c
 		
@@ -578,7 +582,10 @@ do i=1, np
 		t_app = abs(yp+rad*sin(th) - ry(i))/abs(vy(i))
 		t_sep = dt_c - t_app
 	
-		if (t_sep < 0)  write(*,*) 'Cylinder collision: negative time', rx(i),ry(i),rx1(i),ry1(i),vx(i),vy(i),th 
+		if (t_sep < 0) then
+            write(progress_txt,'(A30,7F10.5)') 'Cylinder collision:negative t:', rx(i),ry(i),rx1(i),ry1(i),vx(i),vy(i),th 
+            progress(trim( progress_txt ))
+        end if
 		! x velocity changes in approach -> reversal -> x velocity changes in separation	
 		vx(i) = vx(i) - f_b*dt_c
 		! velocity of approach at the surface of the cylinder
@@ -765,7 +772,8 @@ do i=1,np
     yindex = ceiling(ry1(i))	
     xindex = ceiling(rx1(i))	
     if ( yindex .lt. 0 .or. yindex .gt. 600 .or. xindex .lt. 0 .or. xindex .gt. 1200 ) then
-        write (*,*) "Parition error", rx1(i), ry1(i), i 
+        write (progress_txt,*) "Parition error", rx1(i), ry1(i), i 
+        progress( trim(progress_txt))
         stop
     end if
     ! linked list algorithm
@@ -962,7 +970,10 @@ end do
 end do	
 !$OMP END PARALLEL DO
 
-IF (jpar /= np) write(*,*) "Particles lost during collision"
+IF (jpar /= np) THEN
+    write(progress_txt,*) "Particles lost during collision"
+    progress(( trim(progress_txt) ))
+END IF
 end subroutine collision
 
 !***********************************************************************************************
@@ -1049,7 +1060,10 @@ subroutine collision_rgs(vx, vy, head1, list1)
 	end do
 	end do	
 	!$OMP END PARALLEL DO
-IF (jpar /= np) write(*,*) "Particles lost during collision", jpar, np
+IF (jpar /= np) THEN
+    write(progress_txt,*) "Particles lost during collision"
+    progress(( trim(progress_txt) ))
+END IF
 end subroutine collision_rgs
 
 !****************************************************************
@@ -1162,16 +1176,19 @@ open (unit=20,file=trim(data_path)//trim(fname)//'.xyz',action="read",status="ol
 if ( scrambling ) then
 	read(20,"(A16,I8,A23,I8,A20,F10.5)") string1, iter, string2, nbParticle, string3, read_scramble_u0
 	if ( abs(read_scramble_U0 - scramble_U0 ) .lt. 1e-10 ) then 
-		write(*,*) "Scramble U0 matches, reading continued"
+		write(progress_txt,*) "Scramble U0 matches, reading continued"
+        progress( trim(progress_txt))
 	else
-		write(*,*) "Restart ERROR :: Scramble U0 mismatch"
+		write(progress_txt,*) "Restart ERROR :: Scramble U0 mismatch"
+        progress( trim(progress_txt))
 		stop
 	end if
 else 
 	read(20,"(A16,I8,A23,I8)") string1, iter, string2, nbParticle
 end if
 IF( nbParticle /= np ) THEN
-    write(*,*) "Restart ERROR :: Particle mismatch in restart file"
+    write(progress_txt,*) "Restart ERROR :: Particle mismatch in restart file"
+    progress( trim(progress_txt))
     stop
 END IF
 write(*,*) iter, nbParticle
@@ -1179,8 +1196,8 @@ DO i=1,np
     read(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
 END DO
 
-write (*,*) "Restart file read successfully starting from time= ",iter 
-
+write (progress_txt,*) "Restart file read successfully starting from time= ",iter 
+progress( trim(progress_txt))
 close(20)
 end subroutine read_restartFile
 
@@ -1454,7 +1471,10 @@ subroutine bounce_wall(rx, ry, rx1, ry1, vx, vy)
                     t_app  = (ry(i) - lower_wall_i) /abs(vy_rel)
                     t_dec  = dt_c - t_app
                     vy(i)  = v_low_wall - vy_rel
-                    if (t_app < 0.0d0) write(*,*) iter, 'negative time-bounce', v_low_wall, vy(i),t_app, vy_rel, ry(i), lower_wall_i
+                    if (t_app < 0.0d0) then
+                        write(progress_txt,*) iter, 'negative time-bounce', v_low_wall, vy(i),t_app, vy_rel, ry(i), lower_wall_i
+                        progress( trim(progress_txt))
+                    end if
                     ry1(i) = lower_wall_i + t_app*v_low_wall +  vy(i)*t_dec	
                 end if
             else 			
@@ -1498,7 +1518,7 @@ real(kind=dp) :: Vp,Re
 Vp = (Gama * Ly**2.0 *f_b)/(8.0*mu_tot)
 Re = (Gama * Vp * Ly )/mu_tot
 
-OPEN(UNIT = 10, FILE="Parameters.txt",ACTION = "write",STATUS="replace")
+OPEN(UNIT = 10, FILE="progress.txt",ACTION = "write",STATUS="replace")
 
 write(10,*)"Parameters used in the current simulation to which the data belongs"
 write(10,*) "Particle density: ",Gama, ", alpha rotation: ",alpha, ", kbT: ",kbT
@@ -1540,6 +1560,8 @@ END IF
 IF (wall_oscillatory == 1) write(10,*) 'Oscillating lower wall'
 IF (R_P) write(10,*) "Reimann Problem with density ratio: ",RP_ratio
 IF (dynamic_density) write(10,*) 'Num of samples:', dynamic_den_num,' collected every ', dynamic_den_int,' interval during averaging.'
+write(10,*) "Simulation starts now:"
+write(10,*)
 close(10)
 
 END SUBROUTINE param_file

@@ -1,15 +1,16 @@
 PROGRAM SRD
 use SRD_library
+#define progress(s) OPEN(UNIT = 10, FILE="progress.txt",ACTION = "write",STATUS="old",position="append"); write(10,*) s; CLOSE(10)
 IMPLICIT NONE
 
-INTEGER :: iter, iter_start=1, t_tot, i, j
-REAL(kind=dp):: start, finish
+INTEGER :: iter, iter_start=1, iter_tot, i, j
+REAL(kind=dp):: start, finish, remaining
 INTEGER, ALLOCATABLE :: head(:,:), list(:), head1(:,:), list1(:)
 REAL(kind=dp), ALLOCATABLE, DIMENSION(:) ::rx, ry, rx1, ry1, vx, vy, x_dummy, y_dummy
 ALLOCATE(head(Ly,Lx), list(np), head1(0:Ly+1,Lx), list1(np))
 ALLOCATE(rx(np), ry(np), rx1(np), ry1(np), vx(np), vy(np), x_dummy(np), y_dummy(np))
 
-t_tot = tmax/dt_c
+iter_tot = tmax/dt_c
     call cpu_time(start)
 !$ start = omp_get_wtime()
 
@@ -17,7 +18,7 @@ call initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list)
 IF ( restart == 1 ) call read_restartFile( rx, ry, vx, vy, iter_start )
 call param_file()
 
-do iter = iter_start, t_tot
+do iter = iter_start, iter_tot
     call streaming(rx, ry, rx1, ry1, vx, vy)
 
     IF (obst==1) call par_in_cyl(rx, ry, rx1, ry1, vx, vy)
@@ -44,10 +45,12 @@ do iter = iter_start, t_tot
 
 !                if (iter .ge. 50 .and. R_P ) call RP_shock_front( rx, ry, vx, vy, head, list, iter )
 
-    if (mod(iter,1000) == 0) then
+    if (mod(iter,int(iter_tot/50)) == 0) then
                     call cpu_time(finish)
         !$ finish = omp_get_wtime()
-        PRINT '("Iteration = ",I7," CPU run time =",F10.2," seconds")', iter, finish-start
+        remaining = ( finish - start)*( iter_tot - iter)/( ( iter - iter_start )*1.0 )
+        write(progress_txt,'(a,I0,a,F12.5,a,F12.5,a)') "Iter=",iter,", CPU runtime=",finish-start," secs, Est. remain time:", remaining," secs."
+        progress(trim( progress_txt ))
     endif
 
     ! for averaging the values 
@@ -69,7 +72,8 @@ IF (MSD .or. STRUCTURE_FUNC) call equi_cal()
 
 call cpu_time(finish)
 !$ finish = omp_get_wtime()
-PRINT '("Total Elapsed CPU run time =",F10.2," seconds")', finish-start
+write(progress_txt,*) "Total Elapsed CPU run time =", finish-start," seconds"
+progress(trim( progress_txt ))
 
 DEALLOCATE(head, list, head1, list1)
 DEALLOCATE(rx, ry, rx1, ry1, vx, vy, x_dummy, y_dummy)
