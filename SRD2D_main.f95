@@ -15,8 +15,8 @@ iter_tot = tmax/dt_c
 !$ start = omp_get_wtime()
 
 call initialize(x_dummy, y_dummy, rx,ry,vx,vy, head, list) 
-IF ( restart == 1 ) call read_restartFile( rx, ry, vx, vy, iter_start )
 call param_file()
+IF ( restart == 1 ) call read_restartFile( rx, ry, vx, vy, iter_start )
 
 do iter = iter_start, iter_tot
     call streaming(rx, ry, rx1, ry1, vx, vy)
@@ -46,7 +46,7 @@ do iter = iter_start, iter_tot
 !                if (iter .ge. 50 .and. R_P ) call RP_shock_front( rx, ry, vx, vy, head, list, iter )
 
     if (mod(iter,int(iter_tot/50)) == 0) then
-                    call cpu_time(finish)
+        call cpu_time(finish)
         !$ finish = omp_get_wtime()
         remaining = ( finish - start)*( iter_tot - iter)/( ( iter - iter_start )*1.0 )
         write(progress_txt,'(a,I0,a,F12.5,a,F12.5,a)') "Iter=",iter,", CPU runtime=",finish-start," secs, Est. remain time:", remaining," secs."

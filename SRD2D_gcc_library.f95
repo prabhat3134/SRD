@@ -4,12 +4,12 @@ implicit none
 INTEGER, PARAMETER :: dp = selected_real_kind(15, 307), Gama = 10, m=1, a0=1
 REAL(kind=dp), PARAMETER :: pi=4.D0*DATAN(1.D0), e = 2.71828d0, aspect_ratio = 0.10d0
 ! Grid Parameters
-INTEGER, PARAMETER :: Ly = 60, Lx = 120, np = Ly*Lx*Gama, half_plane = 1
+INTEGER, PARAMETER :: Ly = 600, Lx = 1200, np = Ly*Lx*Gama, half_plane = 1
 REAL(kind=dp), PARAMETER :: alpha = pi/2.0d0, kbT = 1.0d0, dt_c = 1.0d0
 ! Forcing 
 REAL(kind=dp) :: avg=0.0d0, std=sqrt(kbT/(m*1.0d0)), f_b = 0.0d0
 ! time values
-INTEGER :: tmax = 3.0e2, t_avg = 2.5e4, avg_interval=1, ensemble_num = 1 
+INTEGER :: tmax = 3.0e4, t_avg = 2.5e4, avg_interval=1, ensemble_num = 1 
 ! RGS, streaming
 INTEGER :: random_grid_shift = 1, verlet = 1, grid_up_down, grid_check(0:Ly+1,Lx)=0 
 ! Thermostat
@@ -632,7 +632,7 @@ INTEGER :: i, flag
 if (xy(1)) then
     !$OMP DO SCHEDULE( GUIDED )
     DO i=1,np
-        IF (rx1(i) < 0.0) THEN
+        IF (rx1(i) < 0.0d0) THEN
             rx1(i) = rx1(i) + Lx
             IF (MSD) par_periodic(i,1) = par_periodic(i,1) - 1.0d0
         ELSE IF (rx1(i) > Lx*1.0) THEN
@@ -646,7 +646,7 @@ end if
 if (xy(2)) then
     !$OMP DO SCHEDULE( GUIDED )
     DO i=1,np
-        IF (ry1(i) < 0.0) THEN
+        IF (ry1(i) < 0.0d0) THEN
             ry1(i) = ry1(i) + Ly
             IF (MSD) par_periodic(i,2) = par_periodic(i,2) - 1.0d0
         ELSE IF (ry1(i) > Ly*1.0) THEN
@@ -769,13 +769,9 @@ head = 0
 list = 0
 
 do i=1,np
-    yindex = ceiling(ry1(i))	
-    xindex = ceiling(rx1(i))	
-    if ( yindex .lt. 0 .or. yindex .gt. 600 .or. xindex .lt. 0 .or. xindex .gt. 1200 ) then
-        write (progress_txt,*) "Parition error", rx1(i), ry1(i), i 
-        progress( trim(progress_txt))
-        stop
-    end if
+    yindex = ceiling(ry1(i)+1e-10) 	! a particle can only be between 0-Ly, 0-Lx
+    xindex = ceiling(rx1(i)+1e-10) 	
+    
     ! linked list algorithm
     if (head(yindex,xindex)==0) then
         head(yindex,xindex)=i
@@ -1152,7 +1148,7 @@ else
 	write(20,"(A16,I8,A23,I8)") "Time iteration: ",iter, ", Number of Particles: ", np
 end if
 DO i = 1,np
-    write(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
+    write(20,"(4F15.7)") rx(i), ry(i), vx(i), vy(i)
 END DO
 CLOSE(20)
 end subroutine write_restartFile
@@ -1191,14 +1187,14 @@ IF( nbParticle /= np ) THEN
     progress( trim(progress_txt))
     stop
 END IF
-write(*,*) iter, nbParticle
 DO i=1,np
-    read(20,"(4F15.5)") rx(i), ry(i), vx(i), vy(i)
+    read(20,"(4F15.7)") rx(i), ry(i), vx(i), vy(i)
 END DO
-
-write (progress_txt,*) "Restart file read successfully starting from time= ",iter 
-progress( trim(progress_txt))
 close(20)
+
+write (progress_txt,"(a,I8,a,I10)") "Restart file read successfully starting from time= ", iter, " with number of particles: ", nbParticle
+progress( trim(progress_txt))
+iter = iter + 1
 end subroutine read_restartFile
 
 !***********************************************************************
