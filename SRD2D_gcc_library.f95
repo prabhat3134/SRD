@@ -769,8 +769,9 @@ head = 0
 list = 0
 
 do i=1,np
-    yindex = ceiling(ry1(i)+1e-10) 	! a particle can only be between 0-Ly, 0-Lx
-    xindex = ceiling(rx1(i)+1e-10) 	
+    yindex = ceiling(ry1(i)) 	! a particle can only be between 0-Ly, 0-Lx
+    yindex = merge( yindex, 1, yindex > 0 )
+    xindex = ceiling(rx1(i)) 	
     
     ! linked list algorithm
     if (head(yindex,xindex)==0) then
